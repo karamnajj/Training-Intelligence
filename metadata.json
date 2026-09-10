@@ -1,0 +1,6 @@
+{
+  "name": "Training Intelligence",
+  "description": "Intelligent workout tracking and AI personal training platform with interactive 2D anatomical muscle visualization, progressive overload analytics, and contextual AI coaching.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
