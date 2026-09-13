@@ -148,11 +148,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
               <Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" /> Streak
             </span>
-            {radar.streakState?.workedOutToday && (
-              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1 rounded">
+            {radar.streakState?.workedOutToday ? (
+              <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
                 Today ✓
               </span>
-            )}
+            ) : radar.streakState?.isFrozen ? (
+              <span className="text-[9px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                ❄️ Frozen (Rest)
+              </span>
+            ) : null}
           </div>
           <p className="mt-1.5 text-xl font-black text-slate-900 dark:text-white">
             {radar.streakDays}{' '}
@@ -162,10 +166,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             {(radar.streakState?.daysThisWeek || []).map((day, idx) => (
               <div
                 key={idx}
-                title={`${day.dayName}: ${day.trained ? 'Trained' : 'Rest'}${day.isToday ? ' (Today)' : ''}`}
-                className={`w-2.5 h-1 rounded-full ${
+                title={`${day.dayName}: ${day.trained ? 'Trained' : day.isRestDayFreeze ? 'Rest Day (Streak Frozen)' : 'Rest'}${day.isToday ? ' (Today)' : ''}`}
+                className={`w-2.5 h-1.5 rounded-full transition-colors ${
                   day.trained
                     ? 'bg-orange-500'
+                    : day.isRestDayFreeze
+                    ? 'bg-sky-400 dark:bg-sky-500'
                     : day.isToday
                     ? 'bg-orange-400/40 ring-1 ring-orange-500'
                     : 'bg-slate-200 dark:bg-slate-700'
@@ -173,6 +179,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               />
             ))}
           </div>
+          {radar.streakState?.streakMessage && (
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+              {radar.streakState.streakMessage}
+            </p>
+          )}
         </div>
 
         {/* 2. Frequency */}

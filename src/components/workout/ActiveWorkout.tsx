@@ -25,7 +25,8 @@ import {
   Calendar,
   Settings2,
   X,
-  AlertCircle
+  AlertCircle,
+  Dumbbell
 } from 'lucide-react';
 
 interface ActiveWorkoutProps {
@@ -61,22 +62,9 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   );
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
 
-  // Exercises State
+  // Exercises State: default to empty (no default bench press)
   const [exercises, setExercises] = useState<WorkoutExercise[]>(
-    initialWorkout?.exercises && initialWorkout.exercises.length > 0
-      ? initialWorkout.exercises
-      : [
-          {
-            id: `we_${Date.now()}_1`,
-            exerciseId: 'barbell_bench_press',
-            exerciseName: 'Barbell Bench Press',
-            sets: [
-              { id: `s_${Date.now()}_1`, setNumber: 1, type: 'warmup', weightKg: 50, reps: 10, completed: false },
-              { id: `s_${Date.now()}_2`, setNumber: 2, type: 'normal', weightKg: 80, reps: 8, completed: false },
-              { id: `s_${Date.now()}_3`, setNumber: 3, type: 'normal', weightKg: 80, reps: 8, completed: false }
-            ]
-          }
-        ]
+    initialWorkout?.exercises ? [...initialWorkout.exercises] : []
   );
 
   // Timer State
@@ -106,7 +94,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
       if (initialWorkout.startedAt) {
         setWorkoutDateTime(toDateTimeLocal(new Date(initialWorkout.startedAt)));
       }
-      if (initialWorkout.exercises && initialWorkout.exercises.length > 0) {
+      if (Array.isArray(initialWorkout.exercises)) {
         setExercises(initialWorkout.exercises);
       }
     }
@@ -398,7 +386,13 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
 
             <button
               id="finish-workout-btn"
-              onClick={() => setShowFinishModal(true)}
+              onClick={() => {
+                if (exercises.length === 0) {
+                  setShowExerciseSelector(true);
+                  return;
+                }
+                setShowFinishModal(true);
+              }}
               className="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-950 transition-all shrink-0"
             >
               <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
@@ -488,6 +482,21 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
             Change Date
           </button>
         </div>
+
+        {/* Empty State when no exercises are in session */}
+        {exercises.length === 0 && (
+          <div className="p-8 rounded-2xl bg-slate-800/40 border border-dashed border-slate-700/80 text-center space-y-3">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+              <Dumbbell className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">No Exercises in Session Yet</h3>
+              <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
+                Choose an exercise below to start tracking your sets and reps.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Exercises List */}
         {exercises.map((ex, exIdx) => {

@@ -20,16 +20,16 @@ import {
 interface DashboardProps {
   radar: TrainingRadar;
   musclesData: Record<MuscleId, MuscleExposureData>;
-  recentWorkouts: Workout[];
-  personalRecords: PersonalRecord[];
   userProfile: UserProfile;
   onStartEmptyWorkout: () => void;
   onStartRecommendedWorkout: () => void;
-  onStartTemplate: (templateId: string) => void;
-  onRepeatWorkout: (workout: Workout) => void;
   onNavigateToAI: () => void;
-  onNavigateToHistory: () => void;
-  onNavigateToAnalytics: () => void;
+  recentWorkouts?: Workout[];
+  personalRecords?: PersonalRecord[];
+  onStartTemplate?: (templateId: string) => void;
+  onRepeatWorkout?: (workout: Workout) => void;
+  onNavigateToHistory?: () => void;
+  onNavigateToAnalytics?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -42,7 +42,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {/* 1. TOP SECTION: ATHLETE STATUS & IMMEDIATE WORKOUT LAUNCH BAR */}
+      {/* 1. TOP SECTION: ATHLETE STATUS & MINIMAL WORKOUT LAUNCH BAR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 px-5 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
@@ -57,8 +57,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {userProfile.primaryGoal}
               </span>
             </div>
-            {/* Streak & recovery summary directly under account name */}
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+            {/* Streak directly under account name */}
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
                 <Flame className="w-3.5 h-3.5 fill-current text-orange-500" />
                 {radar.streakDays}d streak
@@ -66,10 +66,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ml-0.5" title="Workout completed today" />
                 )}
               </span>
-              <span>•</span>
-              <span>{radar.recoveredMuscles.length} fresh muscle groups</span>
-              <span>•</span>
-              <span>{userProfile.trainingDaysPerWeek}d/wk target</span>
+              {radar.streakState?.isFrozen && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-[10px] font-bold text-sky-700 dark:text-sky-300"
+                  title="Rest Day Freeze: Streak is protected! Log today to keep your streak blazing."
+                >
+                  <span className="text-[11px]">❄️</span> Rest Day Freeze
+                </span>
+              )}
             </div>
           </div>
         </div>

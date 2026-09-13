@@ -578,58 +578,116 @@ export function buildTrainingRadar(
     estDuration = 50;
   }
 
-  // --- STREAK & CONSISTENCY CALCULATION ---
+  // --- STREAK & CONSISTENCY CALCULATION WITH REST DAY FREEZE ---
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Check if user has logged a workout today
-  const workedOutToday = workouts.some(w => {
-    const wDate = new Date(w.completedAt || w.startedAt);
-    wDate.setHours(0, 0, 0, 0);
-    return wDate.getTime() === today.getTime();
-  });
-
-  // Calculate consecutive training streak
-  let consecutiveDays = 0;
-  let checkIndex = workedOutToday ? 0 : 1;
-
-  while (checkIndex < 365) {
-    const targetDay = new Date(today.getTime() - checkIndex * 24 * 60 * 60 * 1000);
-    const dayStr = targetDay.toISOString().slice(0, 10);
-    const hadWorkout = workouts.some(w => {
-      const wDate = new Date(w.completedAt || w.startedAt).toISOString().slice(0, 10);
-      return wDate === dayStr;
-    });
-
-    if (hadWorkout) {
-      consecutiveDays++;
-      checkIndex++;
-    } else {
-      break;
-    }
+  // Set of all distinct training dates formatted YYYY-MM-DD
+  const trainedDatesSet = new Set<string>();
+  for (const w of workouts) {
+    const raw = w.completedAt || w.startedAt;
+    if (!raw) continue;
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) continue;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    trainedDatesSet.add(`${y}-${m}-${day}`);
   }
 
-  const streak = consecutiveDays;
+  const getDayAtOffset = (offsetDays: number): { date: Date; dateStr: string } => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offsetDays);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return { date: d, dateStr: `${y}-${m}-${day}` };
+  };
+
+  const todayStr = getDayAtOffset(0).dateStr;
+  const workedOutToday = trainedDatesSet.has(todayStr);
+
+  let streak = 0;
+  let isFrozen = false;
+  let freezeReason = '';
+  let restDaysInStreak = 0;
+  const frozenRestDateStrs = new Set<string>();
+
+  if (trainedDatesSet.size > 0) {
+    let startOffset = 999;
+
+    if (workedOutToday) {
+      streak = 1;
+      startOffset = 1; // Check yesterday backwards
+    } else {
+      const yesterdayStr = getDayAtOffset(1).dateStr;
+      const dayBeforeYesterdayStr = getDayAtOffset(2).dateStr;
+
+      if (trainedDatesSet.has(yesterdayStr)) {
+        // User worked out yesterday; streak is active from yesterday
+        streak = 1;
+        startOffset = 2; // Yesterday was counted, check 2 days ago backwards
+      } else if (trainedDatesSet.has(dayBeforeYesterdayStr)) {
+        // Missed yesterday, but worked out 2 days ago!
+        // Allow user to miss one day as a rest day freeze.
+        // The streak doesn't increase, but doesn't go away either.
+        streak = 1;
+        isFrozen = true;
+        freezeReason = 'Streak protected by Rest Day Freeze. Log today to extend your streak!';
+        restDaysInStreak = 1;
+        frozenRestDateStrs.add(yesterdayStr);
+        startOffset = 3; // Day before yesterday was counted, check 3 days ago backwards
+      } else {
+        // Both yesterday and 2 days ago were missed -> streak broke
+        streak = 0;
+      }
+    }
+
+    if (startOffset < 365) {
+      let currOffset = startOffset;
+      while (currOffset < 365) {
+        const currDayStr = getDayAtOffset(currOffset).dateStr;
+        if (trainedDatesSet.has(currDayStr)) {
+          streak++;
+          currOffset++;
+        } else {
+          // Check if previous day was trained (allowing 1 rest day freeze)
+          const prevDayStr = getDayAtOffset(currOffset + 1).dateStr;
+          if (trainedDatesSet.has(prevDayStr)) {
+            restDaysInStreak++;
+            frozenRestDateStrs.add(currDayStr);
+            streak++; // Day before was trained
+            currOffset += 2;
+          } else {
+            // Two consecutive missed days: streak chain ends
+            break;
+          }
+        }
+      }
+    }
+  }
 
   // Compute 7-day current week breakdown (Mon to Sun)
   const currentDayOfWeek = today.getDay(); // 0 = Sun, 1 = Mon ...
   const distanceToMonday = (currentDayOfWeek + 6) % 7;
-  const mondayDate = new Date(today.getTime() - distanceToMonday * 24 * 60 * 60 * 1000);
+  const mondayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - distanceToMonday);
 
   const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
   const daysThisWeek = dayLabels.map((dayName, idx) => {
-    const d = new Date(mondayDate.getTime() + idx * 24 * 60 * 60 * 1000);
-    const dStr = d.toISOString().slice(0, 10);
-    const isToday = d.getTime() === today.getTime();
-    const trained = workouts.some(w => {
-      const wDate = new Date(w.completedAt || w.startedAt).toISOString().slice(0, 10);
-      return wDate === dStr;
-    });
+    const d = new Date(mondayDate.getFullYear(), mondayDate.getMonth(), mondayDate.getDate() + idx);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const dStr = `${y}-${m}-${day}`;
+    const isToday = dStr === todayStr;
+    const trained = trainedDatesSet.has(dStr);
+    const isRestDayFreeze = !trained && frozenRestDateStrs.has(dStr);
+
     return {
       dayName,
       dateStr: dStr,
       trained,
-      isToday
+      isToday,
+      isRestDayFreeze
     };
   });
 
@@ -641,12 +699,14 @@ export function buildTrainingRadar(
   let streakMessage = '';
   if (workedOutToday) {
     streakMessage = streak > 1
-      ? `🔥 ${streak}-Day Streak Locked In! Outstanding dedication. Keep the flame blazing tomorrow!`
-      : `🔥 1-Day Streak Ignited! First session complete. Return tomorrow to keep momentum!`;
+      ? `🔥 ${streak}-Day Streak Locked In! Rest day freeze ready if needed tomorrow.`
+      : `🔥 1-Day Streak Ignited! First session complete. Rest day freeze protects your momentum!`;
+  } else if (isFrozen) {
+    streakMessage = `❄️ ${streak}-Day Streak Frozen (Rest Day)! Your streak is protected. Log today to extend it to ${streak + 1} days!`;
   } else if (streak > 0) {
-    streakMessage = `⚡ ${streak}-Day Streak Active! Log today's session to extend your streak to ${streak + 1} days!`;
+    streakMessage = `⚡ ${streak}-Day Streak Active! Log today's session to extend your streak to ${streak + 1} days (or take a rest day freeze)!`;
   } else {
-    streakMessage = `🎯 Start your consistency streak today! Log a session to ignite your flame.`;
+    streakMessage = `🎯 Start your consistency streak today! Rest days won't break your momentum.`;
   }
 
   return {
@@ -669,6 +729,9 @@ export function buildTrainingRadar(
     streakState: {
       currentStreak: streak,
       workedOutToday,
+      isFrozen,
+      freezeReason,
+      restDaysInStreak,
       streakMessage,
       daysThisWeek,
       nextMilestone,

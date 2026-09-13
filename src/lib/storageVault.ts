@@ -88,33 +88,56 @@ async function idbSet(key: string, val: any): Promise<boolean> {
   });
 }
 
+function getActiveUserStorageKey(baseKey: string): string {
+  try {
+    const saved = localStorage.getItem('training_intel_user_id');
+    if (saved && saved.trim()) return `${baseKey}_${saved.trim()}`;
+    const token = localStorage.getItem('training_intel_token');
+    if (token) {
+      if (token.includes('usr_guest_demo')) return `${baseKey}_usr_guest_demo`;
+      if (token.includes('usr_karam_owner')) return `${baseKey}_usr_karam_owner`;
+    }
+  } catch {}
+  return `${baseKey}_default`;
+}
+
 export const storageVault = {
   // 1. Workouts
-  async saveWorkouts(workouts: Workout[]): Promise<void> {
+  async saveWorkouts(workouts: Workout[], allowEmpty = false): Promise<void> {
+    const k = getActiveUserStorageKey('workouts');
+    // Guard against accidental wipes: If incoming array is empty, but we already have stored workouts, do not overwrite unless explicitly forced
+    if (!allowEmpty && (!workouts || workouts.length === 0)) {
+      const existing = await this.getWorkouts();
+      if (existing && existing.length > 0) {
+        console.warn('[StorageVault] Safeguard engaged: Prevented overwriting existing workouts with empty array.');
+        return;
+      }
+    }
+
     try {
-      localStorage.setItem(LS_KEYS.WORKOUTS, JSON.stringify(workouts));
+      localStorage.setItem(k, JSON.stringify(workouts));
     } catch (e) {
       console.warn('[StorageVault] LocalStorage write warning:', e);
     }
-    await idbSet('workouts', workouts);
+    await idbSet(k, workouts);
     this.markSyncTimestamp();
   },
 
   async getWorkouts(): Promise<Workout[]> {
-    // Try IndexedDB first (most durable, no 5MB limit)
-    const idbData = await idbGet<Workout[]>('workouts');
-    if (Array.isArray(idbData) && idbData.length > 0) {
+    const k = getActiveUserStorageKey('workouts');
+    // Try IndexedDB first (user scoped)
+    const idbData = await idbGet<Workout[]>(k);
+    if (Array.isArray(idbData)) {
       return idbData;
     }
 
     // Secondary fallback: LocalStorage
     try {
-      const raw = localStorage.getItem(LS_KEYS.WORKOUTS);
+      const raw = localStorage.getItem(k);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Re-populate IndexedDB
-          await idbSet('workouts', parsed);
+        if (Array.isArray(parsed)) {
+          await idbSet(k, parsed);
           return parsed;
         }
       }
@@ -201,18 +224,20 @@ export const storageVault = {
 
   // 4. Personal Records
   async saveRecords(records: PersonalRecord[]): Promise<void> {
+    const k = getActiveUserStorageKey('records');
     try {
-      localStorage.setItem(LS_KEYS.RECORDS, JSON.stringify(records));
+      localStorage.setItem(k, JSON.stringify(records));
     } catch {}
-    await idbSet('records', records);
+    await idbSet(k, records);
   },
 
   async getRecords(): Promise<PersonalRecord[]> {
-    const idbData = await idbGet<PersonalRecord[]>('records');
+    const k = getActiveUserStorageKey('records');
+    const idbData = await idbGet<PersonalRecord[]>(k);
     if (Array.isArray(idbData)) return idbData;
 
     try {
-      const raw = localStorage.getItem(LS_KEYS.RECORDS);
+      const raw = localStorage.getItem(k);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed;
@@ -220,6 +245,15 @@ export const storageVault = {
     } catch {}
 
     return [];
+  },
+
+  async clearUserCache(userId?: string): Promise<void> {
+    // CRITICAL: Never delete logged workouts or personal records on logout!
+    // Workouts and records are the athlete's valuable history and must persist.
+    // We only remove ephemeral draft keys if needed.
+    try {
+      localStorage.removeItem('training_intel_active_draft');
+    } catch {}
   },
 
   // 5. Sync metadata

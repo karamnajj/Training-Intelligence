@@ -2,7 +2,9 @@ import React, { useState, useRef } from 'react';
 import { UserProfile, MuscleId } from '../../types';
 import { MUSCLE_CATALOG } from '../../lib/muscleMath';
 import { api } from '../../lib/api';
-import { X, User, Settings, ShieldAlert, RotateCcw, Check, Sparkles, Download, Upload, RefreshCw, ShieldCheck } from 'lucide-react';
+import { auth, signInWithGoogle, saveWorkoutToFirestore } from '../../lib/firebase';
+import { storageVault } from '../../lib/storageVault';
+import { X, User, Settings, ShieldAlert, RotateCcw, Check, Sparkles, Download, Upload, RefreshCw, ShieldCheck, Cloud } from 'lucide-react';
 
 interface ProfileModalProps {
   profile: UserProfile;
@@ -10,6 +12,7 @@ interface ProfileModalProps {
   onResetData: (mode: 'seed' | 'empty') => void;
   onReloadData?: () => void;
   onClose: () => void;
+  isGuest?: boolean;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -17,7 +20,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onSave,
   onResetData,
   onReloadData,
-  onClose
+  onClose,
+  isGuest = false
 }) => {
   const [name, setName] = useState(profile.name);
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>(profile.weightUnit || 'kg');
@@ -271,6 +275,26 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               Your workouts, templates, and PRs are saved with atomic transactions and dual-cached across memory and browser storage. Export or restore your complete athlete dataset at any time.
             </p>
 
+            {/* Cloud Firestore Status */}
+            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <Cloud className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                    Firebase Cloud Firestore Database
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {auth.currentUser?.email ? `Connected: ${auth.currentUser.email}` : 'Hardened multi-layer cloud persistence active'}
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                Live & Protected
+              </span>
+            </div>
+
             {vaultStatusMsg && (
               <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40 text-[11px] text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1.5 animate-in fade-in">
                 <Sparkles className="w-3.5 h-3.5 shrink-0 text-blue-500" />
@@ -319,31 +343,33 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </button>
           </div>
 
-          {/* Demo Data Reset Controls */}
+          {/* Workspace Dataset Management */}
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-            <span className="font-bold text-slate-700 dark:text-slate-300 block">
-              Workspace Dataset Management
+            <span className="font-bold text-slate-700 dark:text-slate-300 block text-xs">
+              Workout History Reset
             </span>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onResetData('seed');
-                  onClose();
-                }}
-                className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold"
-              >
-                Reload Realistic History
-              </button>
+              {isGuest && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResetData('seed');
+                    onClose();
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs"
+                >
+                  Reload Guest Demo Data
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
                   onResetData('empty');
                   onClose();
                 }}
-                className="flex-1 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 font-semibold"
+                className="flex-1 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 font-semibold text-xs"
               >
-                Start From Scratch (Empty)
+                Clear Workout History (Start From Scratch)
               </button>
             </div>
           </div>

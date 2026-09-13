@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { AuthUser, UserProfile } from '../../types';
+import { signInWithGoogle } from '../../lib/firebase';
 
 interface WelcomeAuthViewProps {
   onAuthSuccess: (user: AuthUser, profile: UserProfile) => void;
@@ -49,6 +50,46 @@ export function WelcomeAuthView({
       onAuthSuccess(res.user, res.profile);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to initialize guest demo session.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setErrorMessage(null);
+    setIsLoading(true);
+    try {
+      const fbUser = await signInWithGoogle();
+      const uid = fbUser.uid;
+      const userEmail = fbUser.email || 'athlete@trainingintel.app';
+      const displayName = fbUser.displayName || userEmail.split('@')[0] || 'Athlete';
+
+      api.setSession(uid, uid, userEmail);
+
+      const authUser: AuthUser = {
+        id: uid,
+        email: userEmail,
+        username: displayName,
+        createdAt: new Date().toISOString()
+      };
+
+      const userProfile: UserProfile = {
+        id: `prof_${uid}`,
+        name: displayName,
+        experienceLevel: 'intermediate',
+        primaryGoal: 'hypertrophy',
+        trainingDaysPerWeek: 4,
+        preferredDurationMinutes: 60,
+        availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
+        weightUnit: 'kg',
+        preferredUnit: 'kg',
+        focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
+      };
+
+      onAuthSuccess(authUser, userProfile);
+    } catch (err: any) {
+      console.error('Google sign-in error:', err);
+      setErrorMessage(err.message || 'Google sign-in could not be completed.');
     } finally {
       setIsLoading(false);
     }
@@ -275,6 +316,35 @@ export function WelcomeAuthView({
                     Sign In to Athlete Profile
                   </>
                 )}
+              </button>
+
+              {/* Google Cloud Sign-In Button */}
+              <button
+                type="button"
+                id="google-signin-btn"
+                onClick={handleGoogleSignIn}
+                disabled={isLoading}
+                className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-2.5 border border-slate-200 dark:border-slate-700 shadow-xs transition-all active:scale-[0.99] cursor-pointer"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.13C3.25 21.36 7.33 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.57H1.26C.46 8.16 0 9.98 0 12s.46 3.84 1.26 5.43l4.02-3.14z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.25 2.64 1.26 6.57l4.02 3.14c.95-2.83 3.6-4.96 6.72-4.96z"
+                  />
+                </svg>
+                <span>Continue with Google (Cloud Synced)</span>
               </button>
 
               {/* Guest / Reviewer Quick Access Divider */}

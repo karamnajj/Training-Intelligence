@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and athlete training metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "username": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "profile": {
+          "type": "object",
+          "description": "Training profile and preferences"
+        }
+      },
+      "required": ["id", "email", "username"]
+    },
+    "Workout": {
+      "title": "Workout",
+      "description": "Logged workout session containing performed exercises and sets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "startedAt": { "type": "string", "maxLength": 64 },
+        "completedAt": { "type": "string", "maxLength": 64 },
+        "durationSeconds": { "type": "number" },
+        "totalVolumeKg": { "type": "number" },
+        "totalSets": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "exercises": { "type": "array", "description": "Array of workout exercises with sets" },
+        "musclesTrained": { "type": "array", "description": "Muscles engaged during the session" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name", "startedAt"]
+    },
+    "WorkoutTemplate": {
+      "title": "WorkoutTemplate",
+      "description": "Reusable routine template",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "splitType": { "type": "string", "maxLength": 64 },
+        "exercises": { "type": "array", "description": "Template exercises with target sets" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "PersonalRecord": {
+      "title": "PersonalRecord",
+      "description": "Tracked maximum weight, reps and estimated 1RM for an exercise",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "exerciseId": { "type": "string", "maxLength": 128 },
+        "exerciseName": { "type": "string", "maxLength": 128 },
+        "weightKg": { "type": "number" },
+        "reps": { "type": "number" },
+        "estimated1RM": { "type": "number" },
+        "achievedAt": { "type": "string", "maxLength": 64 },
+        "workoutId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "exerciseId", "weightKg", "reps", "estimated1RM"]
+    },
+    "SystemTest": {
+      "title": "SystemTest",
+      "description": "Health check / ping test document",
+      "type": "object",
+      "properties": {
+        "connected": { "type": "boolean" },
+        "testedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["connected"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User account document"
+    },
+    "/users/{userId}/workouts/{workoutId}": {
+      "schema": "Workout",
+      "description": "Individual workouts logged by user"
+    },
+    "/users/{userId}/templates/{templateId}": {
+      "schema": "WorkoutTemplate",
+      "description": "Workout routines created or customized by user"
+    },
+    "/users/{userId}/personalRecords/{recordId}": {
+      "schema": "PersonalRecord",
+      "description": "Personal best records tracked per exercise"
+    },
+    "/test/{testId}": {
+      "schema": "SystemTest",
+      "description": "Connection test probe"
+    }
+  }
+}

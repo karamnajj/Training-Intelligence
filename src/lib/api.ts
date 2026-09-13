@@ -13,9 +13,22 @@ import {
   TrainingDataArchive
 } from '../types';
 import { EXERCISE_DATABASE, EXERCISES_MAP } from './exerciseDatabase';
-import { DEFAULT_USER_PROFILE, WORKOUT_TEMPLATES, getSeedWorkouts, SEED_PERSONAL_RECORDS } from './seedData';
+import { DEFAULT_USER_PROFILE, WORKOUT_TEMPLATES } from './seedData';
 import { calculateMuscleExposures, buildTrainingRadar } from './muscleMath';
 import { storageVault } from './storageVault';
+import {
+  auth,
+  saveWorkoutToFirestore,
+  deleteWorkoutFromFirestore,
+  getWorkoutsFromFirestore,
+  saveTemplateToFirestore,
+  getTemplatesFromFirestore,
+  savePersonalRecordToFirestore,
+  getPersonalRecordsFromFirestore,
+  saveUserProfileToFirestore,
+  getUserProfileFromFirestore,
+  signOutFromFirebase
+} from './firebase';
 
 const BASE_URL = '/api';
 const TOKEN_STORAGE_KEY = 'training_intel_token';
@@ -181,17 +194,31 @@ export const api = {
   },
 
   async logout(): Promise<void> {
+    const currentUid = (() => {
+      try {
+        return localStorage.getItem('training_intel_user_id') || undefined;
+      } catch {
+        return undefined;
+      }
+    })();
     try {
       await fetch(`${BASE_URL}/auth/logout`, {
         method: 'POST',
         headers: this.getHeaders()
       });
-    } finally {
-      this.setToken(null);
-      try {
-        localStorage.removeItem('training_intel_user_id');
-        localStorage.removeItem('training_intel_user_email');
-      } catch {}
+    } catch {}
+
+    try {
+      await signOutFromFirebase();
+    } catch {}
+
+    this.setToken(null);
+    try {
+      localStorage.removeItem('training_intel_user_id');
+      localStorage.removeItem('training_intel_user_email');
+    } catch {}
+    if (currentUid) {
+      await storageVault.clearUserCache(currentUid);
     }
   },
 
@@ -271,39 +298,55 @@ export const api = {
   },
 
   async getWorkouts(): Promise<Workout[]> {
-    let localWorkouts = await storageVault.getWorkouts();
+    const currentFirebaseUser = auth.currentUser;
 
+    // 1. Cloud Firestore Check: if Firebase user is authenticated, retrieve directly from cloud
+    if (currentFirebaseUser?.uid) {
+      try {
+        const firestoreWorkouts = await getWorkoutsFromFirestore(currentFirebaseUser.uid);
+        if (Array.isArray(firestoreWorkouts) && firestoreWorkouts.length > 0) {
+          await storageVault.saveWorkouts(firestoreWorkouts);
+          // Also sync to server in background to keep stats active
+          this.syncWorkouts(firestoreWorkouts).catch(() => {});
+          return firestoreWorkouts;
+        }
+      } catch (fErr) {
+        console.warn('[Firestore] Cloud workouts fetch warning:', fErr);
+      }
+    }
+
+    // 2. Query backend server
     try {
       const res = await fetch(`${BASE_URL}/workouts`, {
         headers: this.getHeaders()
       });
       if (res.ok) {
         const serverWorkouts: Workout[] = await res.json();
-        if (Array.isArray(serverWorkouts)) {
-          // If local storage vault has workouts missing from the server (e.g. server reboot or cold start),
-          // immediately auto-heal the server by syncing them!
-          const serverIds = new Set(serverWorkouts.map(w => w.id));
-          const missingOnServer = localWorkouts.filter(w => !serverIds.has(w.id));
-
-          if (missingOnServer.length > 0) {
-            console.log(`[Storage] Auto-healing: syncing ${missingOnServer.length} vaulted workouts to server...`);
-            const syncResult = await this.syncWorkouts(localWorkouts);
-            if (syncResult.success && syncResult.workouts) {
-              await storageVault.saveWorkouts(syncResult.workouts);
-              return syncResult.workouts;
+        if (Array.isArray(serverWorkouts) && serverWorkouts.length > 0) {
+          await storageVault.saveWorkouts(serverWorkouts);
+          // If Firebase user is active, persist server workouts to Cloud Firestore
+          if (currentFirebaseUser?.uid) {
+            for (const w of serverWorkouts) {
+              saveWorkoutToFirestore(currentFirebaseUser.uid, w).catch(() => {});
             }
           }
-
-          await storageVault.saveWorkouts(serverWorkouts);
           return serverWorkouts;
         }
       }
     } catch (err) {
-      console.warn('[Storage] Backend workouts fetch issue, using storage vault:', err);
+      console.warn('[Storage] Backend workouts fetch issue, using storage vault fallback:', err);
     }
 
-    // Return vaulted workouts (IndexedDB + LocalStorage)
-    if (localWorkouts.length > 0) {
+    // 3. Resilient fallback from local storage vault (IndexedDB / LocalStorage)
+    const localWorkouts = await storageVault.getWorkouts();
+    if (Array.isArray(localWorkouts) && localWorkouts.length > 0) {
+      // Auto-restore: If server was restarted or container redeployed, re-push local workouts to server and cloud
+      this.syncWorkouts(localWorkouts).catch(() => {});
+      if (currentFirebaseUser?.uid) {
+        for (const w of localWorkouts) {
+          saveWorkoutToFirestore(currentFirebaseUser.uid, w).catch(() => {});
+        }
+      }
       return localWorkouts;
     }
 
@@ -320,7 +363,15 @@ export const api = {
     // 1. Instant local vault persistence (zero latency, zero risk)
     const updatedLocal = await storageVault.saveWorkout(workout);
 
-    // 2. Persist to server backend
+    // 2. Direct Cloud Firestore write (permanent, never wiped on redeploy)
+    const currentFirebaseUser = auth.currentUser;
+    if (currentFirebaseUser?.uid) {
+      saveWorkoutToFirestore(currentFirebaseUser.uid, workout).catch(err => {
+        console.warn('[Firestore] Real-time workout write warning:', err);
+      });
+    }
+
+    // 3. Persist to server backend
     try {
       const res = await fetch(`${BASE_URL}/workouts`, {
         method: 'POST',
@@ -358,7 +409,15 @@ export const api = {
     // 1. Instant delete in storage vault
     const remaining = await storageVault.deleteWorkout(id);
 
-    // 2. Delete on server
+    // 2. Delete from Cloud Firestore
+    const currentFirebaseUser = auth.currentUser;
+    if (currentFirebaseUser?.uid) {
+      deleteWorkoutFromFirestore(currentFirebaseUser.uid, id).catch(err => {
+        console.warn('[Firestore] Delete workout warning:', err);
+      });
+    }
+
+    // 3. Delete on server
     try {
       const res = await fetch(`${BASE_URL}/workouts/${id}`, {
         method: 'DELETE',
@@ -403,6 +462,17 @@ export const api = {
   },
 
   async getTemplates(): Promise<WorkoutTemplate[]> {
+    const currentFirebaseUser = auth.currentUser;
+    if (currentFirebaseUser?.uid) {
+      try {
+        const firestoreTemplates = await getTemplatesFromFirestore(currentFirebaseUser.uid);
+        if (Array.isArray(firestoreTemplates) && firestoreTemplates.length > 0) {
+          await storageVault.saveTemplates(firestoreTemplates);
+          return firestoreTemplates;
+        }
+      } catch {}
+    }
+
     try {
       const res = await fetch(`${BASE_URL}/templates`, {
         headers: this.getHeaders()
@@ -411,6 +481,11 @@ export const api = {
         const templates = await res.json();
         if (Array.isArray(templates) && templates.length > 0) {
           await storageVault.saveTemplates(templates);
+          if (currentFirebaseUser?.uid) {
+            for (const t of templates) {
+              saveTemplateToFirestore(currentFirebaseUser.uid, t).catch(() => {});
+            }
+          }
           return templates;
         }
       }
@@ -422,6 +497,11 @@ export const api = {
   },
 
   async saveTemplate(template: WorkoutTemplate): Promise<WorkoutTemplate> {
+    const currentFirebaseUser = auth.currentUser;
+    if (currentFirebaseUser?.uid) {
+      saveTemplateToFirestore(currentFirebaseUser.uid, template).catch(() => {});
+    }
+
     const res = await fetch(`${BASE_URL}/templates`, {
       method: 'POST',
       headers: this.getHeaders(),
@@ -452,7 +532,7 @@ export const api = {
       return await res.json();
     } catch {
       const w = await storageVault.getWorkouts();
-      return calculateMuscleExposures(w.length > 0 ? w : getSeedWorkouts(), EXERCISES_MAP);
+      return calculateMuscleExposures(w, EXERCISES_MAP);
     }
   },
 
@@ -465,19 +545,35 @@ export const api = {
       return await res.json();
     } catch {
       const w = await storageVault.getWorkouts();
-      return buildTrainingRadar(w.length > 0 ? w : getSeedWorkouts(), EXERCISES_MAP);
+      return buildTrainingRadar(w, EXERCISES_MAP);
     }
   },
 
   async getPersonalRecords(): Promise<PersonalRecord[]> {
+    const currentFirebaseUser = auth.currentUser;
+    if (currentFirebaseUser?.uid) {
+      try {
+        const firestorePrs = await getPersonalRecordsFromFirestore(currentFirebaseUser.uid);
+        if (Array.isArray(firestorePrs) && firestorePrs.length > 0) {
+          await storageVault.saveRecords(firestorePrs);
+          return firestorePrs;
+        }
+      } catch {}
+    }
+
     try {
       const res = await fetch(`${BASE_URL}/records`, {
         headers: this.getHeaders()
       });
       if (res.ok) {
         const prs = await res.json();
-        if (Array.isArray(prs)) {
+        if (Array.isArray(prs) && prs.length > 0) {
           await storageVault.saveRecords(prs);
+          if (currentFirebaseUser?.uid) {
+            for (const r of prs) {
+              savePersonalRecordToFirestore(currentFirebaseUser.uid, r).catch(() => {});
+            }
+          }
           return prs;
         }
       }
@@ -625,6 +721,10 @@ export const api = {
       headers: this.getHeaders(),
       body: JSON.stringify({ mode })
     });
+    if (mode === 'empty') {
+      await storageVault.saveWorkouts([]);
+      await storageVault.saveRecords([]);
+    }
   },
 
   async askAICoach(

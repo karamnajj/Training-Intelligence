@@ -12,7 +12,7 @@ import {
 import { api } from './lib/api';
 import { calculateMuscleExposures, buildTrainingRadar, generateRecommendedWorkoutSession } from './lib/muscleMath';
 import { EXERCISES_MAP } from './lib/exerciseDatabase';
-import { getSeedWorkouts, WORKOUT_TEMPLATES, SEED_PERSONAL_RECORDS } from './lib/seedData';
+import { WORKOUT_TEMPLATES } from './lib/seedData';
 
 // Components
 import { Dashboard } from './components/dashboard/Dashboard';
@@ -872,6 +872,7 @@ export function App() {
           onResetData={handleResetData}
           onReloadData={loadData}
           onClose={() => setShowProfileModal(false)}
+          isGuest={currentUser?.id === 'usr_guest_demo' || currentUser?.email === 'guest@trainingintel.demo'}
         />
       )}
 

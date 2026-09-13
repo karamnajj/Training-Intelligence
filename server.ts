@@ -49,193 +49,6 @@ const DB_FILE = path.join(process.cwd(), 'data', 'database.json');
 const userAccounts = new Map<string, UserAccount>();
 const activeSessions = new Map<string, { userId: string; createdAt: number }>();
 
-const KARAM_ACTUAL_WORKOUTS: Workout[] = [
-  {
-    id: 'workout_1788937113526_889u4',
-    name: 'Heavy Push & Chest Focus',
-    startedAt: '2026-09-08T22:15:00.000Z',
-    completedAt: '2026-09-08T23:25:00.000Z',
-    durationSeconds: 4200,
-    notes: 'Felt strong on flat bench, locked out 100kg for 10 clean reps.',
-    totalVolumeKg: 4870,
-    totalSets: 12,
-    musclesTrained: ['chest_mid', 'chest_upper', 'triceps', 'anterior_deltoid', 'lateral_deltoid'],
-    rpeAverage: 8.5,
-    exercises: [
-      {
-        id: 'ex_push_1',
-        exerciseId: 'barbell_bench_press',
-        exerciseName: 'Barbell Bench Press',
-        notes: 'Top working set at 100kg x 10 reps',
-        sets: [
-          { id: 's1_1', setNumber: 1, type: 'normal', weightKg: 80, reps: 12, completed: true, rpe: 7.5 },
-          { id: 's1_2', setNumber: 2, type: 'normal', weightKg: 90, reps: 10, completed: true, rpe: 8 },
-          { id: 's1_3', setNumber: 3, type: 'normal', weightKg: 100, reps: 10, completed: true, rpe: 9 }
-        ]
-      },
-      {
-        id: 'ex_push_2',
-        exerciseId: 'incline_dumbbell_press',
-        exerciseName: 'Incline Dumbbell Bench Press',
-        sets: [
-          { id: 's2_1', setNumber: 1, type: 'normal', weightKg: 28, reps: 10, completed: true, rpe: 8 },
-          { id: 's2_2', setNumber: 2, type: 'normal', weightKg: 30, reps: 10, completed: true, rpe: 8.5 },
-          { id: 's2_3', setNumber: 3, type: 'normal', weightKg: 32, reps: 8, completed: true, rpe: 9 }
-        ]
-      },
-      {
-        id: 'ex_push_3',
-        exerciseId: 'dumbbell_lateral_raise',
-        exerciseName: 'Dumbbell Lateral Raise',
-        sets: [
-          { id: 's3_1', setNumber: 1, type: 'normal', weightKg: 12.5, reps: 15, completed: true, rpe: 8 },
-          { id: 's3_2', setNumber: 2, type: 'normal', weightKg: 12.5, reps: 14, completed: true, rpe: 8.5 },
-          { id: 's3_3', setNumber: 3, type: 'normal', weightKg: 15, reps: 12, completed: true, rpe: 9 }
-        ]
-      },
-      {
-        id: 'ex_push_4',
-        exerciseId: 'triceps_rope_pushdown',
-        exerciseName: 'Cable Triceps Rope Pushdown',
-        sets: [
-          { id: 's4_1', setNumber: 1, type: 'normal', weightKg: 27.5, reps: 12, completed: true, rpe: 8 },
-          { id: 's4_2', setNumber: 2, type: 'normal', weightKg: 30, reps: 10, completed: true, rpe: 8.5 },
-          { id: 's4_3', setNumber: 3, type: 'normal', weightKg: 32.5, reps: 10, completed: true, rpe: 9 }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'workout_1788937004112_771b2',
-    name: 'Lat Width & Back Hypertrophy',
-    startedAt: '2026-09-07T20:30:00.000Z',
-    completedAt: '2026-09-07T21:40:00.000Z',
-    durationSeconds: 4200,
-    notes: 'Great lat stretch and controlled rowing eccentric.',
-    totalVolumeKg: 4620,
-    totalSets: 12,
-    musclesTrained: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'],
-    rpeAverage: 8.2,
-    exercises: [
-      {
-        id: 'ex_pull_1',
-        exerciseId: 'barbell_bent_over_row',
-        exerciseName: 'Barbell Bent-Over Row',
-        sets: [
-          { id: 'p1_1', setNumber: 1, type: 'normal', weightKg: 70, reps: 10, completed: true, rpe: 7.5 },
-          { id: 'p1_2', setNumber: 2, type: 'normal', weightKg: 75, reps: 8, completed: true, rpe: 8 },
-          { id: 'p1_3', setNumber: 3, type: 'normal', weightKg: 80, reps: 8, completed: true, rpe: 8.5 }
-        ]
-      },
-      {
-        id: 'ex_pull_2',
-        exerciseId: 'lat_pulldown',
-        exerciseName: 'Lat Pulldown (Wide/Neutral Grip)',
-        sets: [
-          { id: 'p2_1', setNumber: 1, type: 'normal', weightKg: 65, reps: 10, completed: true, rpe: 7.5 },
-          { id: 'p2_2', setNumber: 2, type: 'normal', weightKg: 70, reps: 10, completed: true, rpe: 8 },
-          { id: 'p2_3', setNumber: 3, type: 'normal', weightKg: 75, reps: 8, completed: true, rpe: 8.5 }
-        ]
-      },
-      {
-        id: 'ex_pull_3',
-        exerciseId: 'face_pulls',
-        exerciseName: 'Cable Face Pull',
-        sets: [
-          { id: 'p3_1', setNumber: 1, type: 'normal', weightKg: 22.5, reps: 15, completed: true, rpe: 8 },
-          { id: 'p3_2', setNumber: 2, type: 'normal', weightKg: 25, reps: 15, completed: true, rpe: 8 },
-          { id: 'p3_3', setNumber: 3, type: 'normal', weightKg: 25, reps: 12, completed: true, rpe: 8.5 }
-        ]
-      },
-      {
-        id: 'ex_pull_4',
-        exerciseId: 'barbell_bicep_curl',
-        exerciseName: 'Barbell Bicep Curl',
-        sets: [
-          { id: 'p4_1', setNumber: 1, type: 'normal', weightKg: 30, reps: 10, completed: true, rpe: 8 },
-          { id: 'p4_2', setNumber: 2, type: 'normal', weightKg: 32.5, reps: 10, completed: true, rpe: 8.5 },
-          { id: 'p4_3', setNumber: 3, type: 'normal', weightKg: 35, reps: 8, completed: true, rpe: 9 }
-        ]
-      }
-    ]
-  }
-];
-
-const KARAM_ACTUAL_PRS: PersonalRecord[] = [
-  {
-    exerciseId: 'barbell_bench_press',
-    exerciseName: 'Barbell Bench Press',
-    maxWeightKg: 100,
-    maxReps: 10,
-    estimated1RMKg: 133.3,
-    achievedAt: '2026-09-08T23:25:00.000Z',
-    workoutId: 'workout_1788937113526_889u4'
-  },
-  {
-    exerciseId: 'incline_dumbbell_press',
-    exerciseName: 'Incline Dumbbell Bench Press',
-    maxWeightKg: 32,
-    maxReps: 8,
-    estimated1RMKg: 40.5,
-    achievedAt: '2026-09-08T23:25:00.000Z',
-    workoutId: 'workout_1788937113526_889u4'
-  },
-  {
-    exerciseId: 'dumbbell_lateral_raise',
-    exerciseName: 'Dumbbell Lateral Raise',
-    maxWeightKg: 15,
-    maxReps: 12,
-    estimated1RMKg: 21,
-    achievedAt: '2026-09-08T23:25:00.000Z',
-    workoutId: 'workout_1788937113526_889u4'
-  },
-  {
-    exerciseId: 'triceps_rope_pushdown',
-    exerciseName: 'Cable Triceps Rope Pushdown',
-    maxWeightKg: 32.5,
-    maxReps: 10,
-    estimated1RMKg: 43.3,
-    achievedAt: '2026-09-08T23:25:00.000Z',
-    workoutId: 'workout_1788937113526_889u4'
-  },
-  {
-    exerciseId: 'barbell_bent_over_row',
-    exerciseName: 'Barbell Bent-Over Row',
-    maxWeightKg: 80,
-    maxReps: 8,
-    estimated1RMKg: 101.3,
-    achievedAt: '2026-09-07T21:40:00.000Z',
-    workoutId: 'workout_1788937004112_771b2'
-  },
-  {
-    exerciseId: 'lat_pulldown',
-    exerciseName: 'Lat Pulldown (Wide/Neutral Grip)',
-    maxWeightKg: 75,
-    maxReps: 8,
-    estimated1RMKg: 95,
-    achievedAt: '2026-09-07T21:40:00.000Z',
-    workoutId: 'workout_1788937004112_771b2'
-  },
-  {
-    exerciseId: 'face_pulls',
-    exerciseName: 'Cable Face Pull',
-    maxWeightKg: 25,
-    maxReps: 15,
-    estimated1RMKg: 37.5,
-    achievedAt: '2026-09-07T21:40:00.000Z',
-    workoutId: 'workout_1788937004112_771b2'
-  },
-  {
-    exerciseId: 'barbell_bicep_curl',
-    exerciseName: 'Barbell Bicep Curl',
-    maxWeightKg: 35,
-    maxReps: 8,
-    estimated1RMKg: 44.3,
-    achievedAt: '2026-09-07T21:40:00.000Z',
-    workoutId: 'workout_1788937004112_771b2'
-  }
-];
-
 function seedPrimaryUserAccounts() {
   // 1. Guaranteed Owner / Athlete Account: Karam (karamnajj79@gmail.com)
   const karamEmail = 'karamnajj79@gmail.com';
@@ -265,21 +78,18 @@ function seedPrimaryUserAccounts() {
       password: 'password123',
       createdAt: new Date().toISOString(),
       profile: karamProfile,
-      workouts: [...KARAM_ACTUAL_WORKOUTS],
+      workouts: [], // Clean start - zero generic workouts
       templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${karamId}_${t.id}` })),
-      personalRecords: [...KARAM_ACTUAL_PRS]
+      personalRecords: []
     };
 
     userAccounts.set(karamId, karamAccount);
   } else {
-    // If Karam account exists from DB, ensure it has the user's 2 actual workouts and PRs.
-    // NEVER re-inject deleted 7 sample workouts.
-    if (!Array.isArray(karamAccount.workouts) || karamAccount.workouts.length === 0) {
-      karamAccount.workouts = [...KARAM_ACTUAL_WORKOUTS];
+    // Keep all workouts actually saved by the user
+    if (!Array.isArray(karamAccount.workouts)) {
+      karamAccount.workouts = [];
     }
-    if (!Array.isArray(karamAccount.personalRecords) || karamAccount.personalRecords.length === 0) {
-      karamAccount.personalRecords = [...KARAM_ACTUAL_PRS];
-    }
+    rebuildPersonalRecordsForUser(karamAccount);
   }
 
   // 2. Guaranteed Guest Demo Account
@@ -342,6 +152,12 @@ function loadDatabaseFromDisk() {
             if (Array.isArray(data.users) && data.users.length > 0) {
               userAccounts.clear();
               for (const u of data.users) {
+                if (u.id !== 'usr_guest_demo' && u.email !== 'guest@trainingintel.demo') {
+                  if (!Array.isArray(u.workouts)) {
+                    u.workouts = [];
+                  }
+                  rebuildPersonalRecordsForUser(u);
+                }
                 userAccounts.set(u.id, u);
               }
               if (Array.isArray(data.sessions)) {
@@ -668,9 +484,11 @@ app.post('/api/auth/register', (req, res) => {
       existingAccount.password = cleanPassword;
       if (username) existingAccount.username = athleteName;
       existingAccount.profile.name = athleteName;
-      if (!Array.isArray(existingAccount.workouts) || existingAccount.workouts.length === 0) {
-        existingAccount.workouts = getSeedWorkouts();
-        existingAccount.personalRecords = [...SEED_PERSONAL_RECORDS];
+      if (!Array.isArray(existingAccount.workouts)) {
+        existingAccount.workouts = [];
+      }
+      if (!Array.isArray(existingAccount.personalRecords)) {
+        existingAccount.personalRecords = [];
       }
       saveDatabaseToDisk();
 
@@ -713,9 +531,9 @@ app.post('/api/auth/register', (req, res) => {
       password: cleanPassword,
       createdAt: new Date().toISOString(),
       profile: newProfile,
-      workouts: getSeedWorkouts(),
+      workouts: [],
       templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}` })),
-      personalRecords: [...SEED_PERSONAL_RECORDS]
+      personalRecords: []
     };
 
     userAccounts.set(userId, newAccount);
@@ -781,9 +599,9 @@ app.post('/api/auth/login', (req, res) => {
         password: cleanPassword,
         createdAt: new Date().toISOString(),
         profile: newProfile,
-        workouts: getSeedWorkouts(),
+        workouts: [],
         templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}` })),
-        personalRecords: [...SEED_PERSONAL_RECORDS]
+        personalRecords: []
       };
 
       userAccounts.set(userId, foundAccount);
@@ -794,11 +612,11 @@ app.post('/api/auth/login', (req, res) => {
         foundAccount.password = cleanPassword;
         saveDatabaseToDisk();
       }
-      // Ensure seed workouts exist if workouts array was empty
-      if (!Array.isArray(foundAccount.workouts) || foundAccount.workouts.length === 0) {
-        foundAccount.workouts = getSeedWorkouts();
-        foundAccount.personalRecords = [...SEED_PERSONAL_RECORDS];
-        saveDatabaseToDisk();
+      if (!Array.isArray(foundAccount.workouts)) {
+        foundAccount.workouts = [];
+      }
+      if (!Array.isArray(foundAccount.personalRecords)) {
+        foundAccount.personalRecords = [];
       }
     }
 
@@ -1196,8 +1014,8 @@ app.post('/api/workouts/restore', (req, res) => {
     user.workouts = [];
   }
 
-  // Only seed sample workouts if the user explicitly asked for sample demo workouts
-  if (req.body?.includeSample === true) {
+  // Only seed sample workouts if the user is explicitly the guest reviewer account
+  if (req.body?.includeSample === true && (user.id === 'usr_guest_demo' || user.email === 'guest@trainingintel.demo')) {
     const defaultHistory = getSeedWorkouts();
     const existingIds = new Set(user.workouts.map(w => w.id));
 
@@ -1391,7 +1209,7 @@ app.post('/api/data/reset', (req, res) => {
     return;
   }
   const { mode } = req.body; // 'seed' | 'empty'
-  if (mode === 'empty') {
+  if (mode === 'empty' || (user.id !== 'usr_guest_demo' && user.email !== 'guest@trainingintel.demo')) {
     user.workouts = [];
     user.personalRecords = [];
   } else {

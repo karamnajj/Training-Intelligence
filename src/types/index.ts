@@ -198,8 +198,17 @@ export interface TrainingRadar {
   streakState?: {
     currentStreak: number;
     workedOutToday: boolean;
+    isFrozen?: boolean;
+    freezeReason?: string;
+    restDaysInStreak?: number;
     streakMessage: string;
-    daysThisWeek: Array<{ dayName: string; dateStr: string; trained: boolean; isToday: boolean }>;
+    daysThisWeek: Array<{
+      dayName: string;
+      dateStr: string;
+      trained: boolean;
+      isToday: boolean;
+      isRestDayFreeze?: boolean;
+    }>;
     nextMilestone: number;
     daysToMilestone: number;
   };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AuthUser, UserProfile } from '../../types';
 import { api } from '../../lib/api';
+import { signInWithGoogle } from '../../lib/firebase';
 import {
   X,
   User,
@@ -152,6 +153,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const firebaseUser = await signInWithGoogle();
+      const userId = firebaseUser.uid;
+      const userEmail = firebaseUser.email || 'athlete@google.com';
+      const userDisplayName = firebaseUser.displayName || userEmail.split('@')[0] || 'Athlete';
+
+      api.setSession(userId, userId, userEmail);
+
+      const authUser: AuthUser = {
+        id: userId,
+        email: userEmail,
+        username: userDisplayName,
+        createdAt: new Date().toISOString()
+      };
+
+      const userProfile: UserProfile = {
+        id: `prof_${userId}`,
+        name: userDisplayName,
+        experienceLevel: 'intermediate',
+        primaryGoal: 'hypertrophy',
+        trainingDaysPerWeek: 4,
+        preferredDurationMinutes: 60,
+        availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
+        weightUnit: 'kg',
+        preferredUnit: 'kg',
+        focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
+      };
+
+      setSuccessMessage(`Connected with Google! Cloud sync active.`);
+      setTimeout(() => {
+        onAuthSuccess(authUser, userProfile);
+        onClose();
+      }, 400);
+    } catch (err: any) {
+      console.error('Google sign-in error:', err);
+      setErrorMessage(err.message || 'Google sign-in could not be completed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
@@ -295,6 +340,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     Sign In to Athlete Profile
                   </>
                 )}
+              </button>
+
+              {/* Google Cloud Sign-In Button */}
+              <button
+                type="button"
+                id="modal-google-signin-btn"
+                onClick={handleGoogleSignIn}
+                disabled={isLoading}
+                className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-2.5 border border-slate-200 dark:border-slate-700 shadow-xs transition-all active:scale-[0.99] cursor-pointer"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.13C3.25 21.36 7.33 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.57H1.26C.46 8.16 0 9.98 0 12s.46 3.84 1.26 5.43l4.02-3.14z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.25 2.64 1.26 6.57l4.02 3.14c.95-2.83 3.6-4.96 6.72-4.96z"
+                  />
+                </svg>
+                <span>Continue with Google (Cloud Synced)</span>
               </button>
 
               <div className="relative py-2 flex items-center justify-center">
