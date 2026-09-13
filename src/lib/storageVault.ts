@@ -13,6 +13,7 @@ const DB_VERSION = 1;
 
 // LocalStorage Keys for instant sync failover
 const LS_KEYS = {
+  MASTER_WORKOUTS: 'training_intel_master_workouts',
   WORKOUTS: 'training_intel_workouts_cache',
   PROFILE: 'training_intel_profile_cache',
   TEMPLATES: 'training_intel_templates_cache',
@@ -93,57 +94,168 @@ function getActiveUserStorageKey(baseKey: string): string {
     const saved = localStorage.getItem('training_intel_user_id');
     if (saved && saved.trim()) return `${baseKey}_${saved.trim()}`;
     const token = localStorage.getItem('training_intel_token');
-    if (token) {
-      if (token.includes('usr_guest_demo')) return `${baseKey}_usr_guest_demo`;
-      if (token.includes('usr_karam_owner')) return `${baseKey}_usr_karam_owner`;
+    if (token && token.trim()) {
+      return `${baseKey}_${token.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32)}`;
     }
   } catch {}
   return `${baseKey}_default`;
 }
 
 export const storageVault = {
-  // 1. Workouts
-  async saveWorkouts(workouts: Workout[], allowEmpty = false): Promise<void> {
+  // 1. Workouts with Indestructible Conflict-Free Merge
+  async persistDirectWorkouts(workouts: Workout[]): Promise<void> {
     const k = getActiveUserStorageKey('workouts');
-    // Guard against accidental wipes: If incoming array is empty, but we already have stored workouts, do not overwrite unless explicitly forced
-    if (!allowEmpty && (!workouts || workouts.length === 0)) {
+    try {
+      localStorage.setItem(LS_KEYS.MASTER_WORKOUTS, JSON.stringify(workouts));
+      localStorage.setItem(k, JSON.stringify(workouts));
+      localStorage.setItem(LS_KEYS.WORKOUTS, JSON.stringify(workouts));
+    } catch (e) {
+      console.warn('[StorageVault] LocalStorage write notice:', e);
+    }
+    await Promise.all([
+      idbSet(LS_KEYS.MASTER_WORKOUTS, workouts),
+      idbSet(k, workouts)
+    ]);
+    this.markSyncTimestamp();
+  },
+
+  async saveWorkouts(incomingWorkouts: Workout[], allowEmpty = false): Promise<void> {
+    if (!allowEmpty && (!incomingWorkouts || incomingWorkouts.length === 0)) {
       const existing = await this.getWorkouts();
       if (existing && existing.length > 0) {
-        console.warn('[StorageVault] Safeguard engaged: Prevented overwriting existing workouts with empty array.');
+        console.warn('[StorageVault] Safeguard active: prevented wiping workouts with empty input.');
         return;
       }
     }
 
-    try {
-      localStorage.setItem(k, JSON.stringify(workouts));
-    } catch (e) {
-      console.warn('[StorageVault] LocalStorage write warning:', e);
+    const existing = await this.getWorkouts();
+    const map = new Map<string, Workout>();
+
+    // 1. Load existing safe workouts
+    for (const w of existing) {
+      if (w && w.id) {
+        map.set(w.id, w);
+      }
     }
-    await idbSet(k, workouts);
-    this.markSyncTimestamp();
+
+    // 2. Merge incoming workouts: keep the richer/newer version
+    for (const inW of (incomingWorkouts || [])) {
+      if (inW && inW.id) {
+        const curr = map.get(inW.id);
+        if (!curr) {
+          map.set(inW.id, inW);
+        } else {
+          // If incoming has exercises or more sets, prefer incoming
+          const currSets = curr.totalSets || (curr.exercises ? curr.exercises.reduce((acc, e) => acc + (e.sets?.length || 0), 0) : 0);
+          const inSets = inW.totalSets || (inW.exercises ? inW.exercises.reduce((acc, e) => acc + (e.sets?.length || 0), 0) : 0);
+          if (inSets >= currSets || inW.completedAt) {
+            map.set(inW.id, { ...curr, ...inW });
+          }
+        }
+      }
+    }
+
+    const merged = Array.from(map.values());
+    merged.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+
+    await this.persistDirectWorkouts(merged);
   },
 
   async getWorkouts(): Promise<Workout[]> {
+    const map = new Map<string, Workout>();
     const k = getActiveUserStorageKey('workouts');
-    // Try IndexedDB first (user scoped)
-    const idbData = await idbGet<Workout[]>(k);
-    if (Array.isArray(idbData)) {
-      return idbData;
+
+    // Source 1: IndexedDB Master Vault
+    const idbMaster = await idbGet<Workout[]>(LS_KEYS.MASTER_WORKOUTS);
+    if (Array.isArray(idbMaster)) {
+      for (const w of idbMaster) if (w && w.id) map.set(w.id, w);
     }
 
-    // Secondary fallback: LocalStorage
+    // Source 2: IndexedDB Active User Key
+    const idbActive = await idbGet<Workout[]>(k);
+    if (Array.isArray(idbActive)) {
+      for (const w of idbActive) if (w && w.id && !map.has(w.id)) map.set(w.id, w);
+    }
+
+    // Source 3: LocalStorage Master Key
     try {
-      const raw = localStorage.getItem(k);
-      if (raw) {
-        const parsed = JSON.parse(raw);
+      const rawMaster = localStorage.getItem(LS_KEYS.MASTER_WORKOUTS);
+      if (rawMaster) {
+        const parsed = JSON.parse(rawMaster);
         if (Array.isArray(parsed)) {
-          await idbSet(k, parsed);
-          return parsed;
+          for (const w of parsed) if (w && w.id && !map.has(w.id)) map.set(w.id, w);
         }
       }
     } catch {}
 
-    return [];
+    // Source 4: LocalStorage Active Key
+    try {
+      const rawActive = localStorage.getItem(k);
+      if (rawActive) {
+        const parsed = JSON.parse(rawActive);
+        if (Array.isArray(parsed)) {
+          for (const w of parsed) if (w && w.id && !map.has(w.id)) map.set(w.id, w);
+        }
+      }
+    } catch {}
+
+    // Source 5: LocalStorage Legacy Cache Key
+    try {
+      const rawLegacy = localStorage.getItem(LS_KEYS.WORKOUTS);
+      if (rawLegacy) {
+        const parsed = JSON.parse(rawLegacy);
+        if (Array.isArray(parsed)) {
+          for (const w of parsed) if (w && w.id && !map.has(w.id)) map.set(w.id, w);
+        }
+      }
+    } catch {}
+
+    // Source 6: Deep Recovery Scan - scans ALL localStorage keys for any previously stored workouts!
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const lKey = localStorage.key(i);
+          if (lKey && (lKey.includes('workout') || lKey.includes('training_intel'))) {
+            try {
+              const val = localStorage.getItem(lKey);
+              if (val && val.startsWith('[')) {
+                const parsed = JSON.parse(val);
+                if (Array.isArray(parsed)) {
+                  for (const item of parsed) {
+                    if (item && item.id && (item.startedAt || item.exercises || item.totalVolumeKg !== undefined)) {
+                      if (!map.has(item.id)) {
+                        map.set(item.id, item);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    const results = Array.from(map.values());
+    results.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+
+    // If workouts were found or recovered, ensure master stores are in sync
+    if (results.length > 0) {
+      try {
+        localStorage.setItem(LS_KEYS.MASTER_WORKOUTS, JSON.stringify(results));
+        idbSet(LS_KEYS.MASTER_WORKOUTS, results).catch(() => {});
+      } catch {}
+    }
+
+    return results;
   },
 
   async saveWorkout(workout: Workout): Promise<Workout[]> {
@@ -153,7 +265,7 @@ export const storageVault = {
 
     if (idx >= 0) {
       updated = [...all];
-      updated[idx] = workout;
+      updated[idx] = { ...all[idx], ...workout };
     } else {
       updated = [workout, ...all];
     }
@@ -165,18 +277,43 @@ export const storageVault = {
       return tB - tA;
     });
 
-    await this.saveWorkouts(updated);
+    await this.persistDirectWorkouts(updated);
     return updated;
   },
 
   async deleteWorkout(id: string): Promise<Workout[]> {
     const all = await this.getWorkouts();
     const filtered = all.filter(w => w.id !== id);
-    await this.saveWorkouts(filtered);
+    await this.persistDirectWorkouts(filtered);
     return filtered;
   },
 
-  // 2. Profile
+  // 2. User Authentication Cache
+  async saveUser(user: AuthUser): Promise<void> {
+    try {
+      localStorage.setItem(LS_KEYS.USER, JSON.stringify(user));
+      localStorage.setItem('training_intel_user_id', user.id);
+      if (user.email) localStorage.setItem('training_intel_user_email', user.email);
+    } catch {}
+    await idbSet('current_user', user);
+  },
+
+  async getUser(): Promise<AuthUser | null> {
+    const idbData = await idbGet<AuthUser>('current_user');
+    if (idbData && idbData.id) return idbData;
+
+    try {
+      const raw = localStorage.getItem(LS_KEYS.USER);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.id) return parsed;
+      }
+    } catch {}
+
+    return null;
+  },
+
+  // 3. Profile
   async saveProfile(profile: UserProfile): Promise<void> {
     try {
       localStorage.setItem(LS_KEYS.PROFILE, JSON.stringify(profile));

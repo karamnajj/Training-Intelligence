@@ -6,3 +6,18 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local database, user records and persistent runtime data
+data/
+*.db
+*.sqlite
+*.backup.json
+
+# Private keys, certificates and secrets
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa*
+*service-account*.json
+

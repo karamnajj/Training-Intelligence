@@ -137,6 +137,9 @@ export async function signOutFromFirebase(): Promise<void> {
 
 // 5. Cloud Firestore Persistence Operations for Workouts
 export async function saveWorkoutToFirestore(userId: string, workout: Workout): Promise<void> {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) {
+    return;
+  }
   const path = `users/${userId}/workouts/${workout.id}`;
   try {
     const workoutRef = doc(db, 'users', userId, 'workouts', workout.id);
@@ -163,6 +166,9 @@ export async function saveWorkoutToFirestore(userId: string, workout: Workout): 
 }
 
 export async function deleteWorkoutFromFirestore(userId: string, workoutId: string): Promise<void> {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) {
+    return;
+  }
   const path = `users/${userId}/workouts/${workoutId}`;
   try {
     const workoutRef = doc(db, 'users', userId, 'workouts', workoutId);
@@ -173,6 +179,9 @@ export async function deleteWorkoutFromFirestore(userId: string, workoutId: stri
 }
 
 export async function getWorkoutsFromFirestore(userId: string): Promise<Workout[]> {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) {
+    return [];
+  }
   const path = `users/${userId}/workouts`;
   try {
     const workoutsCol = collection(db, 'users', userId, 'workouts');

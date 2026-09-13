@@ -34,6 +34,7 @@ service cloud.firestore {
         data.id is string && data.id.size() <= 128 &&
         data.email is string && data.email.size() <= 256 &&
         data.username is string && data.username.size() <= 100 &&
+        (!('profile' in data) || data.profile is map) &&
         (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
         (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
@@ -61,6 +62,7 @@ service cloud.firestore {
         data.userId is string && data.userId.size() <= 128 &&
         data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
         (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 64)) &&
         (!('splitType' in data) || (data.splitType is string && data.splitType.size() <= 64)) &&
         (!('exercises' in data) || (data.exercises is list && data.exercises.size() <= 50)) &&
         (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
@@ -68,13 +70,16 @@ service cloud.firestore {
     }
 
     function isValidRecord(data) {
-      return data.keys().hasAll(['id', 'userId', 'exerciseId', 'weightKg', 'reps', 'estimated1RM']) &&
+      return data.keys().hasAll(['id', 'userId', 'exerciseId']) &&
         data.id is string && data.id.size() <= 128 &&
         data.userId is string && data.userId.size() <= 128 &&
         data.exerciseId is string && data.exerciseId.size() <= 128 &&
-        data.weightKg is number && data.weightKg >= 0 &&
-        data.reps is number && data.reps >= 0 &&
-        data.estimated1RM is number && data.estimated1RM >= 0 &&
+        (!('weightKg' in data) || data.weightKg is number) &&
+        (!('maxWeightKg' in data) || data.maxWeightKg is number) &&
+        (!('reps' in data) || data.reps is number) &&
+        (!('maxReps' in data) || data.maxReps is number) &&
+        (!('estimated1RM' in data) || data.estimated1RM is number) &&
+        (!('estimated1RMKg' in data) || data.estimated1RMKg is number) &&
         (!('exerciseName' in data) || (data.exerciseName is string && data.exerciseName.size() <= 128)) &&
         (!('workoutId' in data) || (data.workoutId is string && data.workoutId.size() <= 128)) &&
         (!('achievedAt' in data) || (data.achievedAt is string && data.achievedAt.size() <= 64)) &&
@@ -82,10 +87,9 @@ service cloud.firestore {
         (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
-    // --- Health / Connection Test Probe ---
+    // --- Health / Connection Test Probe (Authenticated Only) ---
     match /test/{testId} {
-      allow read: if true;
-      allow write: if isSignedIn() || isValidId(testId);
+      allow read, write: if isSignedIn();
     }
 
     // --- Users Collection ---

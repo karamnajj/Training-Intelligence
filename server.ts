@@ -50,49 +50,7 @@ const userAccounts = new Map<string, UserAccount>();
 const activeSessions = new Map<string, { userId: string; createdAt: number }>();
 
 function seedPrimaryUserAccounts() {
-  // 1. Guaranteed Owner / Athlete Account: Karam (karamnajj79@gmail.com)
-  const karamEmail = 'karamnajj79@gmail.com';
-  let karamAccount = Array.from(userAccounts.values()).find(
-    u => u.email.toLowerCase() === karamEmail.toLowerCase()
-  );
-
-  if (!karamAccount) {
-    const karamId = 'usr_karam_owner';
-    const karamProfile: UserProfile = {
-      id: `prof_${karamId}`,
-      name: 'Karam',
-      experienceLevel: 'intermediate',
-      primaryGoal: 'hypertrophy',
-      trainingDaysPerWeek: 4,
-      preferredDurationMinutes: 60,
-      availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
-      weightUnit: 'kg',
-      preferredUnit: 'kg',
-      focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
-    };
-
-    karamAccount = {
-      id: karamId,
-      email: karamEmail,
-      username: 'Karam',
-      password: 'password123',
-      createdAt: new Date().toISOString(),
-      profile: karamProfile,
-      workouts: [], // Clean start - zero generic workouts
-      templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${karamId}_${t.id}` })),
-      personalRecords: []
-    };
-
-    userAccounts.set(karamId, karamAccount);
-  } else {
-    // Keep all workouts actually saved by the user
-    if (!Array.isArray(karamAccount.workouts)) {
-      karamAccount.workouts = [];
-    }
-    rebuildPersonalRecordsForUser(karamAccount);
-  }
-
-  // 2. Guaranteed Guest Demo Account
+  // 1. Guaranteed Guest Demo Account for interactive preview & onboarding
   const guestId = 'usr_guest_demo';
   let guestAccount = userAccounts.get(guestId);
   if (!guestAccount) {
@@ -128,6 +86,16 @@ function seedPrimaryUserAccounts() {
       guestAccount.personalRecords = [...SEED_PERSONAL_RECORDS];
     }
   }
+
+  // Ensure loaded user accounts have their PRs maintained
+  for (const account of userAccounts.values()) {
+    if (account.id !== guestId) {
+      if (!Array.isArray(account.workouts)) {
+        account.workouts = [];
+      }
+      rebuildPersonalRecordsForUser(account);
+    }
+  }
 }
 
 function loadDatabaseFromDisk() {
@@ -136,12 +104,10 @@ function loadDatabaseFromDisk() {
       path.join(process.cwd(), 'data', 'database.json'),
       path.join(process.cwd(), 'data', 'database.backup.json'),
       path.join(process.cwd(), 'dist', 'data', 'database.json'),
-      path.join(process.cwd(), 'dist', 'data', 'database.backup.json'),
-      path.join(__dirname, 'data', 'database.json'),
-      path.join(__dirname, '..', 'data', 'database.json')
+      path.join(process.cwd(), 'dist', 'data', 'database.backup.json')
     ];
 
-    let loadedSuccessfully = false;
+    let loadedAny = false;
 
     for (const filePath of candidates) {
       if (fs.existsSync(filePath)) {
@@ -150,31 +116,46 @@ function loadDatabaseFromDisk() {
           if (raw.trim()) {
             const data = JSON.parse(raw);
             if (Array.isArray(data.users) && data.users.length > 0) {
-              userAccounts.clear();
               for (const u of data.users) {
-                if (u.id !== 'usr_guest_demo' && u.email !== 'guest@trainingintel.demo') {
-                  if (!Array.isArray(u.workouts)) {
-                    u.workouts = [];
+                if (!u || !u.id) continue;
+                if (!Array.isArray(u.workouts)) u.workouts = [];
+                const existing = userAccounts.get(u.id);
+                if (!existing) {
+                  if (u.id !== 'usr_guest_demo') {
+                    rebuildPersonalRecordsForUser(u);
                   }
-                  rebuildPersonalRecordsForUser(u);
+                  userAccounts.set(u.id, u);
+                } else {
+                  // Merge workouts additively
+                  const existingIds = new Set((existing.workouts || []).map((w: any) => w.id));
+                  for (const w of u.workouts) {
+                    if (!existingIds.has(w.id)) {
+                      existing.workouts.push(w);
+                    }
+                  }
+                  if (existing.id !== 'usr_guest_demo') {
+                    rebuildPersonalRecordsForUser(existing);
+                  }
                 }
-                userAccounts.set(u.id, u);
               }
               if (Array.isArray(data.sessions)) {
-                activeSessions.clear();
                 for (const s of data.sessions) {
-                  activeSessions.set(s.token, { userId: s.userId, createdAt: s.createdAt });
+                  if (s && s.token && s.userId) {
+                    activeSessions.set(s.token, { userId: s.userId, createdAt: s.createdAt || Date.now() });
+                  }
                 }
               }
-              console.log(`[Storage] Successfully loaded ${data.users.length} accounts from ${filePath}`);
-              loadedSuccessfully = true;
-              break;
+              loadedAny = true;
             }
           }
         } catch (readErr) {
           console.warn(`[Storage] Notice reading ${filePath}:`, readErr);
         }
       }
+    }
+
+    if (loadedAny) {
+      console.log(`[Storage] Aggregated user accounts across disk candidate files: total ${userAccounts.size} accounts in memory`);
     }
 
     // Always guarantee primary owner and guest demo accounts exist
@@ -201,6 +182,45 @@ function saveDatabaseToDisk() {
       fs.mkdirSync(primaryDir, { recursive: true });
     }
 
+    const primaryFile = path.join(primaryDir, 'database.json');
+    const backupFile = path.join(primaryDir, 'database.backup.json');
+    const tempFile = `${primaryFile}.tmp`;
+
+    // Safeguard: Compare against disk before writing
+    // If the database on disk has workouts for a user, but in-memory has 0 workouts, merge them from disk!
+    if (fs.existsSync(primaryFile)) {
+      try {
+        const diskRaw = fs.readFileSync(primaryFile, 'utf-8');
+        if (diskRaw.trim()) {
+          const diskData = JSON.parse(diskRaw);
+          if (Array.isArray(diskData.users)) {
+            for (const diskUser of diskData.users) {
+              if (Array.isArray(diskUser.workouts) && diskUser.workouts.length > 0) {
+                const memUser = userAccounts.get(diskUser.id);
+                if (memUser) {
+                  if (!Array.isArray(memUser.workouts) || memUser.workouts.length === 0) {
+                    console.log(`[Storage] Rescued ${diskUser.workouts.length} workouts for user ${diskUser.id} from disk.`);
+                    memUser.workouts = diskUser.workouts;
+                  } else {
+                    const memWorkoutIds = new Set(memUser.workouts.map((w: any) => w.id));
+                    for (const dw of diskUser.workouts) {
+                      if (!memWorkoutIds.has(dw.id)) {
+                        memUser.workouts.push(dw);
+                      }
+                    }
+                  }
+                } else {
+                  userAccounts.set(diskUser.id, diskUser);
+                }
+              }
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn('[Storage] Safety check notice:', checkErr);
+      }
+    }
+
     const data = {
       version: '1.1.0',
       lastSavedAt: new Date().toISOString(),
@@ -214,9 +234,6 @@ function saveDatabaseToDisk() {
     };
 
     const serialized = JSON.stringify(data, null, 2);
-    const primaryFile = path.join(primaryDir, 'database.json');
-    const backupFile = path.join(primaryDir, 'database.backup.json');
-    const tempFile = `${primaryFile}.tmp`;
 
     // 1. If existing database exists and is valid, create/update rolling backup first
     if (fs.existsSync(primaryFile)) {
@@ -279,54 +296,177 @@ process.on('SIGINT', () => handleProcessShutdown('SIGINT'));
 // Load existing user accounts from database file on startup
 loadDatabaseFromDisk();
 
+// Helper to auto-create or restore a dedicated user container so data is never lost or mixed into guest demo
+function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
+  if (userAccounts.has(id)) {
+    return userAccounts.get(id)!;
+  }
+  const cleanEmail = email && email.trim() ? email.trim().toLowerCase() : `${id}@trainingintel.app`.toLowerCase();
+  for (const acc of userAccounts.values()) {
+    if (acc.id === id || (acc.email && acc.email.toLowerCase() === cleanEmail)) {
+      return acc;
+    }
+  }
+
+  // Scan disk candidate files to see if user exists with prior data
+  const candidates = [
+    path.join(process.cwd(), 'data', 'database.json'),
+    path.join(process.cwd(), 'data', 'database.backup.json'),
+    path.join(process.cwd(), 'dist', 'data', 'database.json'),
+    path.join(process.cwd(), 'dist', 'data', 'database.backup.json')
+  ];
+
+  for (const fp of candidates) {
+    if (fs.existsSync(fp)) {
+      try {
+        const raw = fs.readFileSync(fp, 'utf-8');
+        if (raw.trim()) {
+          const d = JSON.parse(raw);
+          if (Array.isArray(d.users)) {
+            const diskMatch = d.users.find(
+              (u: any) => u.id === id || (u.email && u.email.toLowerCase() === cleanEmail)
+            );
+            if (diskMatch) {
+              if (!Array.isArray(diskMatch.workouts)) diskMatch.workouts = [];
+              rebuildPersonalRecordsForUser(diskMatch);
+              userAccounts.set(diskMatch.id, diskMatch);
+              console.log(`[Storage] Restored existing account ${diskMatch.id} (${diskMatch.email}) from ${fp} with ${diskMatch.workouts.length} workouts`);
+              return diskMatch;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Storage] Notice checking ${fp}:`, err);
+      }
+    }
+  }
+
+  // Truly a new user account: create initial container
+  const namePart = cleanEmail.includes('@') ? cleanEmail.split('@')[0] : 'Athlete';
+  const newAccount: UserAccount = {
+    id,
+    email: cleanEmail,
+    username: namePart,
+    password: 'athlete_auth_token_secured',
+    createdAt: new Date().toISOString(),
+    profile: {
+      id: `prof_${id}`,
+      name: namePart,
+      experienceLevel: 'intermediate',
+      primaryGoal: 'hypertrophy',
+      trainingDaysPerWeek: 4,
+      preferredDurationMinutes: 60,
+      availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
+      weightUnit: 'kg',
+      preferredUnit: 'kg',
+      focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
+    },
+    workouts: [],
+    templates: WORKOUT_TEMPLATES,
+    personalRecords: []
+  };
+  userAccounts.set(id, newAccount);
+  saveDatabaseToDisk();
+  console.log(`[Storage] Auto-created persistent account container for user ${id} (${cleanEmail})`);
+  return newAccount;
+}
+
 // Extract Authenticated User from Request (Session Token / Header)
 function getUserFromRequest(req: express.Request): UserAccount | null {
   const authHeader = req.headers.authorization;
   const customUserId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
   const customUserEmail = (req.headers['x-user-email'] as string) || (req.query.email as string);
+  const cleanEmail = customUserEmail && customUserEmail.trim() ? customUserEmail.trim().toLowerCase() : '';
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    const session = activeSessions.get(token);
-    if (session && userAccounts.has(session.userId)) {
-      return userAccounts.get(session.userId)!;
-    }
-    // Resilient fallback: parse userId prefix if in-memory session was lost on server restart
-    // Token format: tok_${userId}_${timestamp}_${random}
-    if (token.startsWith('tok_')) {
-      const rest = token.substring(4);
-      for (const [uid, user] of userAccounts.entries()) {
-        if (rest.startsWith(uid)) {
-          activeSessions.set(token, { userId: uid, createdAt: Date.now() });
-          return user;
+  // 0. High priority: Match by explicit email across all loaded accounts
+  if (cleanEmail) {
+    for (const u of userAccounts.values()) {
+      if (u.email && u.email.toLowerCase() === cleanEmail) {
+        if (customUserId && customUserId.trim()) {
+          userAccounts.set(customUserId.trim(), u);
         }
+        return u;
       }
     }
-    if (token.toLowerCase().includes('guest')) {
-      const guest = userAccounts.get('usr_guest_demo');
-      if (guest) return guest;
+  }
+
+  // 1. Check Bearer Token
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7).trim();
+    if (token) {
+      const session = activeSessions.get(token);
+      if (session && userAccounts.has(session.userId)) {
+        const user = userAccounts.get(session.userId)!;
+        if (cleanEmail && (!user.email || user.email.endsWith('@trainingintel.app'))) {
+          user.email = cleanEmail;
+          saveDatabaseToDisk();
+        }
+        return user;
+      }
+      // Parse userId prefix: tok_${userId}_${timestamp}_...
+      if (token.startsWith('tok_')) {
+        const parts = token.substring(4).split('_');
+        const candidateUid = parts.slice(0, parts.length - 2).join('_') || parts[0];
+        for (const [uid, user] of userAccounts.entries()) {
+          if (token.substring(4).startsWith(uid)) {
+            activeSessions.set(token, { userId: uid, createdAt: Date.now() });
+            if (cleanEmail && (!user.email || user.email.endsWith('@trainingintel.app'))) {
+              user.email = cleanEmail;
+              saveDatabaseToDisk();
+            }
+            return user;
+          }
+        }
+        if (candidateUid && candidateUid !== 'guest') {
+          const newAcc = createOrRestoreUserAccount(candidateUid, customUserEmail);
+          activeSessions.set(token, { userId: candidateUid, createdAt: Date.now() });
+          return newAcc;
+        }
+      }
+      // Check if raw token is a Firebase UID or custom user ID
+      if (token.length > 5 && !token.includes(' ') && !token.toLowerCase().includes('guest')) {
+        if (userAccounts.has(token)) {
+          const user = userAccounts.get(token)!;
+          if (cleanEmail && (!user.email || user.email.endsWith('@trainingintel.app'))) {
+            user.email = cleanEmail;
+            saveDatabaseToDisk();
+          }
+          return user;
+        }
+        const newAcc = createOrRestoreUserAccount(token, customUserEmail);
+        activeSessions.set(token, { userId: token, createdAt: Date.now() });
+        return newAcc;
+      }
+      if (token.toLowerCase().includes('guest')) {
+        const guest = userAccounts.get('usr_guest_demo');
+        if (guest) return guest;
+      }
     }
   }
 
-  if (customUserId && userAccounts.has(customUserId)) {
-    return userAccounts.get(customUserId)!;
+  // 2. Check Explicit User ID Header / Query
+  if (customUserId && customUserId.trim()) {
+    const uid = customUserId.trim();
+    if (userAccounts.has(uid)) {
+      const u = userAccounts.get(uid)!;
+      if (cleanEmail && (!u.email || u.email.endsWith('@trainingintel.app'))) {
+        u.email = cleanEmail;
+        saveDatabaseToDisk();
+      }
+      return u;
+    }
+    return createOrRestoreUserAccount(uid, customUserEmail);
   }
 
-  if (customUserEmail) {
-    const matched = Array.from(userAccounts.values()).find(
-      u => u.email.toLowerCase() === customUserEmail.trim().toLowerCase()
-    );
-    if (matched) return matched;
+  // 3. Check Explicit Email Header / Query (auto-provision container if brand new)
+  if (cleanEmail) {
+    const generatedId = `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    return createOrRestoreUserAccount(generatedId, cleanEmail);
   }
 
-  // Resilient Default: Default to owner account (Karam)
-  // Ensures workout logging, history retrieval, or standalone iframe requests NEVER fail with 401
-  const karam = Array.from(userAccounts.values()).find(
-    u => u.email.toLowerCase().includes('karamnajj') || u.id === 'usr_karam_owner'
-  );
-  if (karam) {
-    return karam;
-  }
+  // 4. Default: ONLY return guest if no specific identity was requested
+  const guest = userAccounts.get('usr_guest_demo');
+  if (guest) return guest;
 
   const firstUser = userAccounts.values().next().value;
   return firstUser || null;
@@ -510,7 +650,7 @@ app.post('/api/auth/register', (req, res) => {
       return;
     }
 
-    const userId = normalizedEmail === 'karamnajj79@gmail.com' ? 'usr_karam_owner' : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const newProfile: UserProfile = {
       id: `prof_${userId}`,
       name: athleteName,
@@ -584,7 +724,7 @@ app.post('/api/auth/login', (req, res) => {
       const derivedName = normalizedEmail.includes('@')
         ? normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
         : 'Athlete';
-      const userId = normalizedEmail === 'karamnajj79@gmail.com' ? 'usr_karam_owner' : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
       const newProfile: UserProfile = {
         ...DEFAULT_USER_PROFILE,
@@ -652,9 +792,12 @@ app.get('/api/auth/me', (req, res) => {
     });
     return;
   }
-  const token = `tok_${user.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const authHeader = req.headers.authorization;
+  let token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.substring(7).trim() : '';
+  if (!token || !token.includes(user.id)) {
+    token = `tok_${user.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  }
   activeSessions.set(token, { userId: user.id, createdAt: Date.now() });
-  saveDatabaseToDisk();
 
   res.json({
     success: true,
@@ -1072,9 +1215,18 @@ app.post('/api/workouts/sync', (req, res) => {
 
   let addedCount = 0;
   for (const w of incomingWorkouts) {
-    if (w && w.id && !existingMap.has(w.id)) {
-      existingMap.set(w.id, w);
-      addedCount++;
+    if (w && w.id) {
+      const existing = existingMap.get(w.id);
+      if (!existing) {
+        existingMap.set(w.id, w);
+        addedCount++;
+      } else {
+        const currSets = existing.totalSets || (existing.exercises ? existing.exercises.reduce((acc, e) => acc + (e.sets?.length || 0), 0) : 0);
+        const inSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (e.sets?.length || 0), 0) : 0);
+        if (inSets >= currSets || w.completedAt) {
+          existingMap.set(w.id, { ...existing, ...w });
+        }
+      }
     }
   }
 

@@ -31,9 +31,9 @@ export function WelcomeAuthView({
   onToggleTheme
 }: WelcomeAuthViewProps) {
   const [tab, setTab] = useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = useState('karamnajj79@gmail.com');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('Karam');
+  const [username, setUsername] = useState('');
   const [primaryGoal, setPrimaryGoal] = useState<'hypertrophy' | 'strength' | 'endurance' | 'recomp'>('hypertrophy');
   const [experienceLevel, setExperienceLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');

@@ -104,6 +104,12 @@ export const api = {
     if (data.token) {
       this.setSession(data.token, data.user?.id, data.user?.email);
     }
+    if (data.user) {
+      storageVault.saveUser(data.user).catch(() => {});
+    }
+    if (data.profile) {
+      storageVault.saveProfile(data.profile).catch(() => {});
+    }
     return data;
   },
 
@@ -121,6 +127,12 @@ export const api = {
     if (data.token) {
       this.setSession(data.token, data.user?.id, data.user?.email);
     }
+    if (data.user) {
+      storageVault.saveUser(data.user).catch(() => {});
+    }
+    if (data.profile) {
+      storageVault.saveProfile(data.profile).catch(() => {});
+    }
     return data;
   },
 
@@ -137,6 +149,12 @@ export const api = {
     if (data.token) {
       this.setSession(data.token, data.user?.id, data.user?.email);
     }
+    if (data.user) {
+      storageVault.saveUser(data.user).catch(() => {});
+    }
+    if (data.profile) {
+      storageVault.saveProfile(data.profile).catch(() => {});
+    }
     return data;
   },
 
@@ -145,19 +163,46 @@ export const api = {
       const res = await fetch(`${BASE_URL}/auth/me`, {
         headers: this.getHeaders()
       });
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data && data.user) {
-        try {
-          if (data.token) this.setToken(data.token);
-          if (data.user.id) localStorage.setItem('training_intel_user_id', data.user.id);
-          if (data.user.email) localStorage.setItem('training_intel_user_email', data.user.email);
-        } catch {}
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.user) {
+          try {
+            if (data.token) this.setToken(data.token);
+            if (data.user.id) localStorage.setItem('training_intel_user_id', data.user.id);
+            if (data.user.email) localStorage.setItem('training_intel_user_email', data.user.email);
+            storageVault.saveUser(data.user).catch(() => {});
+            if (data.profile) storageVault.saveProfile(data.profile).catch(() => {});
+          } catch {}
+          return data;
+        }
       }
-      return data;
     } catch {
-      return null;
+      // Offline / server restart failover
     }
+
+    // Resilient local vault recovery: Never log the athlete out if local session is cached!
+    const localUser = await storageVault.getUser();
+    if (localUser && localUser.id) {
+      const localProfile = await storageVault.getProfile() || {
+        id: `prof_${localUser.id}`,
+        name: localUser.username || 'Athlete',
+        experienceLevel: 'intermediate',
+        primaryGoal: 'hypertrophy',
+        trainingDaysPerWeek: 4,
+        preferredDurationMinutes: 60,
+        availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
+        weightUnit: 'kg',
+        preferredUnit: 'kg',
+        focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
+      };
+      return {
+        success: true,
+        user: localUser,
+        profile: localProfile
+      };
+    }
+
+    return null;
   },
 
   async getUsersList(): Promise<Array<{
@@ -298,24 +343,47 @@ export const api = {
   },
 
   async getWorkouts(): Promise<Workout[]> {
+    const workoutMap = new Map<string, Workout>();
     const currentFirebaseUser = auth.currentUser;
 
-    // 1. Cloud Firestore Check: if Firebase user is authenticated, retrieve directly from cloud
+    // 1. First retrieve all safe local workouts from storage vault (IndexedDB + Master LocalStorage + Scanned Keys)
+    try {
+      const localWorkouts = await storageVault.getWorkouts();
+      if (Array.isArray(localWorkouts)) {
+        for (const w of localWorkouts) {
+          if (w && w.id) workoutMap.set(w.id, w);
+        }
+      }
+    } catch (lErr) {
+      console.warn('[StorageVault] Local workouts retrieval notice:', lErr);
+    }
+
+    // 2. Cloud Firestore: If Firebase user is authenticated, retrieve directly from cloud and merge
     if (currentFirebaseUser?.uid) {
       try {
         const firestoreWorkouts = await getWorkoutsFromFirestore(currentFirebaseUser.uid);
         if (Array.isArray(firestoreWorkouts) && firestoreWorkouts.length > 0) {
-          await storageVault.saveWorkouts(firestoreWorkouts);
-          // Also sync to server in background to keep stats active
-          this.syncWorkouts(firestoreWorkouts).catch(() => {});
-          return firestoreWorkouts;
+          for (const fw of firestoreWorkouts) {
+            if (fw && fw.id) {
+              const existing = workoutMap.get(fw.id);
+              if (!existing) {
+                workoutMap.set(fw.id, fw);
+              } else {
+                const exSets = existing.totalSets || (existing.exercises?.length || 0);
+                const fwSets = fw.totalSets || (fw.exercises?.length || 0);
+                if (fwSets >= exSets) {
+                  workoutMap.set(fw.id, fw);
+                }
+              }
+            }
+          }
         }
       } catch (fErr) {
-        console.warn('[Firestore] Cloud workouts fetch warning:', fErr);
+        console.warn('[Firestore] Cloud workouts fetch notice:', fErr);
       }
     }
 
-    // 2. Query backend server
+    // 3. Query backend server and merge
     try {
       const res = await fetch(`${BASE_URL}/workouts`, {
         headers: this.getHeaders()
@@ -323,34 +391,47 @@ export const api = {
       if (res.ok) {
         const serverWorkouts: Workout[] = await res.json();
         if (Array.isArray(serverWorkouts) && serverWorkouts.length > 0) {
-          await storageVault.saveWorkouts(serverWorkouts);
-          // If Firebase user is active, persist server workouts to Cloud Firestore
-          if (currentFirebaseUser?.uid) {
-            for (const w of serverWorkouts) {
-              saveWorkoutToFirestore(currentFirebaseUser.uid, w).catch(() => {});
+          for (const sw of serverWorkouts) {
+            if (sw && sw.id) {
+              const existing = workoutMap.get(sw.id);
+              if (!existing) {
+                workoutMap.set(sw.id, sw);
+              } else {
+                const exSets = existing.totalSets || (existing.exercises?.length || 0);
+                const swSets = sw.totalSets || (sw.exercises?.length || 0);
+                if (swSets >= exSets) {
+                  workoutMap.set(sw.id, sw);
+                }
+              }
             }
           }
-          return serverWorkouts;
         }
       }
     } catch (err) {
-      console.warn('[Storage] Backend workouts fetch issue, using storage vault fallback:', err);
+      console.warn('[Storage] Backend workouts fetch issue, proceeding with merged vault:', err);
     }
 
-    // 3. Resilient fallback from local storage vault (IndexedDB / LocalStorage)
-    const localWorkouts = await storageVault.getWorkouts();
-    if (Array.isArray(localWorkouts) && localWorkouts.length > 0) {
-      // Auto-restore: If server was restarted or container redeployed, re-push local workouts to server and cloud
-      this.syncWorkouts(localWorkouts).catch(() => {});
+    const mergedList = Array.from(workoutMap.values());
+    mergedList.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+
+    // 4. Save consolidated workouts back to storage vault so they are never lost
+    if (mergedList.length > 0) {
+      await storageVault.saveWorkouts(mergedList);
+
+      // Auto-Heal: If local vault had workouts that server or cloud didn't have, heal them in background
+      this.syncWorkouts(mergedList).catch(() => {});
       if (currentFirebaseUser?.uid) {
-        for (const w of localWorkouts) {
+        for (const w of mergedList) {
           saveWorkoutToFirestore(currentFirebaseUser.uid, w).catch(() => {});
         }
       }
-      return localWorkouts;
     }
 
-    return [];
+    return mergedList;
   },
 
   async saveWorkout(workout: Workout): Promise<{

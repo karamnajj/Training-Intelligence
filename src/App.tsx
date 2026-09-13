@@ -10,6 +10,7 @@ import {
   MuscleId
 } from './types';
 import { api } from './lib/api';
+import { storageVault } from './lib/storageVault';
 import { calculateMuscleExposures, buildTrainingRadar, generateRecommendedWorkoutSession } from './lib/muscleMath';
 import { EXERCISES_MAP } from './lib/exerciseDatabase';
 import { WORKOUT_TEMPLATES } from './lib/seedData';
@@ -73,51 +74,73 @@ export function App() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load initial backend state
+  // Load initial backend state with instant local vault restore
   const loadData = async () => {
+    // Phase 1: Instant Local Restore (0ms latency, eliminates loading blank states)
     try {
-      let authData = await api.getMe();
-      // If no valid session was recovered, attempt auto-login as Karam
-      if (!authData || !authData.user) {
-        try {
-          authData = await api.login({ email: 'karamnajj79@gmail.com', password: 'password123' });
-        } catch {
-          // ignore error
-        }
+      const [cachedUser, cachedProf, cachedW, cachedT, cachedPrs] = await Promise.all([
+        storageVault.getUser(),
+        storageVault.getProfile(),
+        storageVault.getWorkouts(),
+        storageVault.getTemplates(),
+        storageVault.getRecords()
+      ]);
+
+      if (cachedUser) {
+        setCurrentUser(cachedUser);
+      } else if (cachedW && cachedW.length > 0) {
+        const savedUid = localStorage.getItem('training_intel_user_id') || 'usr_athlete_local';
+        const savedEmail = localStorage.getItem('training_intel_user_email') || 'athlete@trainingintel.app';
+        const autoUser: AuthUser = {
+          id: savedUid,
+          email: savedEmail,
+          username: savedEmail.includes('@') ? savedEmail.split('@')[0] : 'Athlete',
+          createdAt: new Date().toISOString()
+        };
+        setCurrentUser(autoUser);
+        storageVault.saveUser(autoUser).catch(() => {});
       }
+
+      if (cachedProf) setProfile(cachedProf);
+      if (Array.isArray(cachedW) && cachedW.length > 0) {
+        setWorkouts(cachedW);
+        setMusclesData(calculateMuscleExposures(cachedW, EXERCISES_MAP));
+        setRadar(buildTrainingRadar(cachedW, EXERCISES_MAP));
+      }
+      if (Array.isArray(cachedT) && cachedT.length > 0) setTemplates(cachedT);
+      if (Array.isArray(cachedPrs) && cachedPrs.length > 0) setPersonalRecords(cachedPrs);
+    } catch (localErr) {
+      console.warn('[Vault] Instant local load notice:', localErr);
+    }
+
+    // Phase 2: Cloud / Backend Network Synchronization
+    try {
+      const authData = await api.getMe();
 
       if (authData && authData.user) {
         setCurrentUser(authData.user);
-        const [p, w, t, pr, m, r] = await Promise.all([
-          api.getProfile(),
-          api.getWorkouts(),
-          api.getTemplates(),
-          api.getPersonalRecords(),
-          api.getMuscles(),
-          api.getRadar()
-        ]);
-        setProfile(p);
-        setWorkouts(Array.isArray(w) ? w : []);
-        setTemplates(t && t.length > 0 ? t : WORKOUT_TEMPLATES);
-        setPersonalRecords(Array.isArray(pr) ? pr : []);
-        setMusclesData(m);
-        setRadar(r);
-      } else {
-        // Even if auth fails or is offline, load cached user workouts
-        const fallbackWorkouts = await api.getWorkouts();
-        setWorkouts(Array.isArray(fallbackWorkouts) ? fallbackWorkouts : []);
-        const prs = await api.getPersonalRecords();
-        setPersonalRecords(Array.isArray(prs) ? prs : []);
-        setTemplates(WORKOUT_TEMPLATES);
+        if (authData.profile) setProfile(authData.profile);
       }
+
+      const [p, w, t, pr, m, r] = await Promise.all([
+        api.getProfile(),
+        api.getWorkouts(),
+        api.getTemplates(),
+        api.getPersonalRecords(),
+        api.getMuscles(),
+        api.getRadar()
+      ]);
+
+      if (p) setProfile(p);
+      if (Array.isArray(w) && w.length > 0) {
+        setWorkouts(w);
+      }
+      if (t && t.length > 0) setTemplates(t);
+      if (Array.isArray(pr)) setPersonalRecords(pr);
+      if (m) setMusclesData(m);
+      if (r) setRadar(r);
     } catch (err) {
-      console.warn('Data initialization notice:', err);
-      try {
-        const cached = await api.getWorkouts();
-        setWorkouts(Array.isArray(cached) ? cached : []);
-      } catch {
-        setWorkouts([]);
-      }
+      console.warn('Network sync notice (local data preserved):', err);
     } finally {
       setIsLoading(false);
     }
@@ -228,7 +251,20 @@ export function App() {
     try {
       const res = await api.saveWorkout(finishedWorkout);
       const saved = res.workout || finishedWorkout;
-      const updatedList = res.workouts || [saved, ...workouts.filter(w => w.id !== saved.id)];
+      
+      // Resilient safe list: combine immediateList and any returned workouts so count never shrinks
+      const map = new Map<string, Workout>();
+      for (const w of immediateList) if (w && w.id) map.set(w.id, w);
+      if (res.workouts && Array.isArray(res.workouts)) {
+        for (const w of res.workouts) if (w && w.id) map.set(w.id, w);
+      }
+      map.set(saved.id, saved);
+      const updatedList = Array.from(map.values());
+      updatedList.sort((a, b) => {
+        const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+        const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+        return tB - tA;
+      });
       
       setWorkouts(updatedList);
 
@@ -252,7 +288,7 @@ export function App() {
         setPersonalRecords(prs);
       }
     } catch (err) {
-      console.error('Error saving finished workout to server:', err);
+      console.error('Notice saving finished workout to server:', err);
     } finally {
       setActiveWorkoutData(null);
       setActiveTab('history');
@@ -424,8 +460,8 @@ export function App() {
     );
   }
 
-  // Welcome / Sign-in gate for unauthenticated users
-  if (!isLoading && !currentUser) {
+  // Welcome / Sign-in gate for unauthenticated users without any existing workout history
+  if (!isLoading && !currentUser && workouts.length === 0) {
     return (
       <WelcomeAuthView
         onAuthSuccess={async (user, userProf) => {
