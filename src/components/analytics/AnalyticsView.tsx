@@ -82,8 +82,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   for (const w of workouts) {
     for (const ex of w.exercises || []) {
       const exName = (ex.exerciseName || ex.exerciseId || '').toLowerCase();
-      const exVol = (ex.sets || []).reduce(
-        (sum, s) => sum + (s.completed && s.type !== 'warmup' ? (s.weightKg || 0) * (s.reps || 0) : 0),
+      const rawSets: any[] = Array.isArray(ex?.sets)
+        ? ex.sets
+        : (ex?.sets && typeof ex.sets === 'object'
+          ? Object.values(ex.sets)
+          : (typeof ex?.sets === 'number'
+            ? Array.from({ length: ex.sets }).map(() => ({ completed: true, weightKg: (ex as any).suggestedWeightKg || (ex as any).weightKg || 0, reps: (ex as any).repMin || (ex as any).reps || 10 }))
+            : []));
+      const exVol = rawSets.reduce(
+        (sum, s) => sum + (s && s.completed && s.type !== 'warmup' ? (Number(s.weightKg) || 0) * (Number(s.reps) || 0) : 0),
         0
       );
       if (

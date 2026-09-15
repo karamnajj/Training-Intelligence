@@ -23,6 +23,8 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Workout, WorkoutTemplate, PersonalRecord, UserProfile } from '../types';
+import { isGenuineWorkout } from './storageVault';
+import { formatAthleteName } from './nameUtils';
 
 // 1. Initialize Firebase App and Services
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -116,7 +118,7 @@ export async function signInWithGoogle(): Promise<FirebaseUser> {
       {
         id: user.uid,
         email: user.email || '',
-        username: user.displayName || user.email?.split('@')[0] || 'Athlete',
+        username: formatAthleteName(user.displayName, user.email),
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -133,6 +135,46 @@ export async function signInWithGoogle(): Promise<FirebaseUser> {
 
 export async function signOutFromFirebase(): Promise<void> {
   await signOut(auth);
+}
+
+// 4b. Firebase Authentication Listener & Session Helpers
+export function subscribeToFirebaseAuth(callback: (user: FirebaseUser | null) => void): () => void {
+  return onAuthStateChanged(auth, (user) => {
+    callback(user);
+  });
+}
+
+export async function waitForFirebaseAuth(timeoutMs = 500): Promise<FirebaseUser | null> {
+  if (auth.currentUser) return auth.currentUser;
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(auth.currentUser);
+      }
+    }, timeoutMs);
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(user);
+      }
+    });
+  });
+}
+
+export async function tryAnonymousAuth(): Promise<FirebaseUser | null> {
+  if (auth.currentUser) return auth.currentUser;
+  try {
+    const { signInAnonymously } = await import('firebase/auth');
+    const res = await signInAnonymously(auth);
+    return res.user;
+  } catch {
+    return null;
+  }
 }
 
 // 5. Cloud Firestore Persistence Operations for Workouts
@@ -178,7 +220,7 @@ export async function deleteWorkoutFromFirestore(userId: string, workoutId: stri
   }
 }
 
-export async function getWorkoutsFromFirestore(userId: string): Promise<Workout[]> {
+export async function getWorkoutsFromFirestore(userId: string, deletedIds?: Set<string>): Promise<Workout[]> {
   if (!auth.currentUser || auth.currentUser.uid !== userId) {
     return [];
   }
@@ -187,27 +229,104 @@ export async function getWorkoutsFromFirestore(userId: string): Promise<Workout[
     const workoutsCol = collection(db, 'users', userId, 'workouts');
     const snap = await getDocs(workoutsCol);
     const results: Workout[] = [];
-    snap.forEach(docSnap => {
+    
+    for (const docSnap of snap.docs) {
       const data = docSnap.data();
-      results.push({
-        id: data.id || docSnap.id,
+      const docId = data.id || docSnap.id;
+
+      // 1. Tombstone check: If deleted, remove from Firestore immediately so it never resurrects
+      if (deletedIds && (deletedIds.has(docId) || deletedIds.has(docSnap.id))) {
+        deleteDoc(doc(db, 'users', userId, 'workouts', docSnap.id)).catch(() => {});
+        continue;
+      }
+
+      // 2. Reject objects with no timestamp (NEVER fabricate a current timestamp!)
+      if (!data.startedAt && !data.completedAt) {
+        deleteDoc(doc(db, 'users', userId, 'workouts', docSnap.id)).catch(() => {});
+        continue;
+      }
+
+      const candidate: Workout = {
+        id: docId,
         name: data.name || 'Workout',
-        startedAt: data.startedAt || new Date().toISOString(),
+        startedAt: data.startedAt,
         completedAt: data.completedAt,
         durationSeconds: data.durationSeconds || 0,
         totalVolumeKg: data.totalVolumeKg || 0,
         totalSets: data.totalSets || 0,
         notes: data.notes || '',
-        exercises: data.exercises || [],
+        exercises: Array.isArray(data.exercises) ? data.exercises : [],
         musclesTrained: data.musclesTrained || []
-      });
-    });
+      };
 
-    // Sort by startedAt descending
-    results.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+      // 3. Reject exercises or templates masquerading as workouts
+      if (!isGenuineWorkout(candidate)) {
+        deleteDoc(doc(db, 'users', userId, 'workouts', docSnap.id)).catch(() => {});
+        continue;
+      }
+
+      results.push(candidate);
+    }
+
+    // Sort by startedAt or completedAt descending
+    results.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
     return results;
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
+    return [];
+  }
+}
+
+export async function clearAllWorkoutsFromFirestore(userId: string): Promise<void> {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) return;
+  const path = `users/${userId}/workouts`;
+  try {
+    const workoutsCol = collection(db, 'users', userId, 'workouts');
+    const snap = await getDocs(workoutsCol);
+    const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+    await Promise.all(deletePromises);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function purgeInvalidWorkoutsFromFirestore(userId: string, deletedIds?: Set<string>): Promise<number> {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) return 0;
+  const path = `users/${userId}/workouts`;
+  try {
+    const workoutsCol = collection(db, 'users', userId, 'workouts');
+    const snap = await getDocs(workoutsCol);
+    let purged = 0;
+    const promises: Promise<void>[] = [];
+
+    for (const d of snap.docs) {
+      const data = d.data();
+      const docId = data.id || d.id;
+      const isDeleted = deletedIds && (deletedIds.has(docId) || deletedIds.has(d.id));
+      const hasTiming = !!(data.startedAt || data.completedAt);
+      const genuine = hasTiming && isGenuineWorkout({
+        id: docId,
+        name: data.name,
+        startedAt: data.startedAt,
+        completedAt: data.completedAt,
+        exercises: data.exercises,
+        durationSeconds: data.durationSeconds
+      });
+
+      if (isDeleted || !genuine) {
+        promises.push(deleteDoc(d.ref).catch(() => {}));
+        purged++;
+      }
+    }
+    await Promise.all(promises);
+    return purged;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+    return 0;
   }
 }
 

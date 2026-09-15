@@ -45,9 +45,30 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
     Math.max(5, Math.round((workout.durationSeconds || 3600) / 60))
   );
   const [workoutNotes, setWorkoutNotes] = useState(workout.notes || '');
-  const [exercises, setExercises] = useState<WorkoutExercise[]>(
-    workout.exercises ? JSON.parse(JSON.stringify(workout.exercises)) : []
-  );
+  const [exercises, setExercises] = useState<WorkoutExercise[]>(() => {
+    if (!workout.exercises) return [];
+    return workout.exercises.map((ex: any, exIdx: number) => {
+      let setsArr: any[] = [];
+      if (Array.isArray(ex.sets)) {
+        setsArr = ex.sets;
+      } else if (ex.sets && typeof ex.sets === 'object') {
+        setsArr = Object.values(ex.sets);
+      } else if (typeof ex.sets === 'number') {
+        setsArr = Array.from({ length: ex.sets }).map((_, sIdx) => ({
+          id: `s_${exIdx}_${sIdx}`,
+          setNumber: sIdx + 1,
+          type: 'normal',
+          weightKg: ex.suggestedWeightKg || ex.weightKg || 40,
+          reps: ex.repMin || ex.reps || 10,
+          completed: true
+        }));
+      }
+      return {
+        ...ex,
+        sets: setsArr
+      };
+    });
+  });
 
   const [showExerciseSelector, setShowExerciseSelector] = useState(false);
 
@@ -59,8 +80,9 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
 
     exercises.forEach(ex => {
       const def = EXERCISES_MAP[ex.exerciseId];
-      ex.sets.forEach(s => {
-        if (s.completed && s.type !== 'warmup') {
+      const setsArr = Array.isArray(ex.sets) ? ex.sets : [];
+      setsArr.forEach(s => {
+        if (s && s.completed && s.type !== 'warmup') {
           volume += (s.weightKg || 0) * (s.reps || 0);
           completedSets++;
           if (def?.muscles) {
@@ -121,6 +143,9 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   const handleAddSet = (exIdx: number) => {
     setExercises(prev => {
       const updated = [...prev];
+      if (!Array.isArray(updated[exIdx].sets)) {
+        updated[exIdx].sets = [];
+      }
       const currentSets = updated[exIdx].sets;
       const lastSet = currentSets[currentSets.length - 1];
       currentSets.push({
@@ -138,7 +163,8 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   const handleRemoveSet = (exIdx: number, setIdx: number) => {
     setExercises(prev => {
       const updated = [...prev];
-      updated[exIdx].sets = updated[exIdx].sets
+      const curr = Array.isArray(updated[exIdx].sets) ? updated[exIdx].sets : [];
+      updated[exIdx].sets = curr
         .filter((_, i) => i !== setIdx)
         .map((s, idx) => ({ ...s, setNumber: idx + 1 }));
       return updated;
@@ -153,6 +179,9 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   ) => {
     setExercises(prev => {
       const updated = [...prev];
+      if (!Array.isArray(updated[exIdx].sets)) {
+        updated[exIdx].sets = [];
+      }
       updated[exIdx].sets[setIdx] = {
         ...updated[exIdx].sets[setIdx],
         [field]: val
@@ -332,7 +361,7 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
 
                   {/* Sets table */}
                   <div className="space-y-1.5">
-                    {ex.sets.map((s, sIdx) => (
+                    {(Array.isArray(ex.sets) ? ex.sets : []).map((s, sIdx) => (
                       <div
                         key={s.id || sIdx}
                         className="flex items-center gap-2 text-xs"

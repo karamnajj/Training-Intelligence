@@ -161,7 +161,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   const getPreviousPerformance = (exerciseId: string) => {
     for (const w of previousWorkouts) {
       const match = w.exercises?.find(e => e.exerciseId === exerciseId);
-      if (match && match.sets.length > 0) {
+      if (match && Array.isArray(match.sets) && match.sets.length > 0) {
         return match;
       }
     }
@@ -228,6 +228,9 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   const handleAddSet = (exerciseIndex: number) => {
     setExercises(prev => {
       const updated = [...prev];
+      if (!Array.isArray(updated[exerciseIndex].sets)) {
+        updated[exerciseIndex].sets = [];
+      }
       const currentSets = updated[exerciseIndex].sets;
       const lastSet = currentSets[currentSets.length - 1];
       const newSetNumber = currentSets.length + 1;
@@ -247,7 +250,8 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   const handleRemoveSet = (exerciseIndex: number, setIndex: number) => {
     setExercises(prev => {
       const updated = [...prev];
-      updated[exerciseIndex].sets = updated[exerciseIndex].sets
+      const curr = Array.isArray(updated[exerciseIndex].sets) ? updated[exerciseIndex].sets : [];
+      updated[exerciseIndex].sets = curr
         .filter((_, i) => i !== setIndex)
         .map((s, idx) => ({ ...s, setNumber: idx + 1 }));
       return updated;
@@ -283,7 +287,8 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
 
     exercises.forEach(ex => {
       const def = EXERCISES_MAP[ex.exerciseId];
-      ex.sets.forEach(s => {
+      const setsArr = Array.isArray(ex?.sets) ? ex.sets : [];
+      setsArr.forEach(s => {
         if (s.completed && s.type !== 'warmup') {
           volume += (s.weightKg || 0) * (s.reps || 0);
           completedSets++;
@@ -502,9 +507,11 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         {exercises.map((ex, exIdx) => {
           const def = EXERCISES_MAP[ex.exerciseId];
           const prev = getPreviousPerformance(ex.exerciseId);
-          const overloadAdvice = prev
-            ? calculateProgressiveOverload(prev.sets.map(s => ({ weightKg: s.weightKg, reps: s.reps })))
+          const prevSets = Array.isArray(prev?.sets) ? prev.sets : [];
+          const overloadAdvice = prev && prevSets.length > 0
+            ? calculateProgressiveOverload(prevSets.map(s => ({ weightKg: s.weightKg, reps: s.reps })))
             : null;
+          const currentSets = Array.isArray(ex.sets) ? ex.sets : [];
 
           return (
             <div
@@ -532,7 +539,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                 <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                   <button
                     onClick={() => {
-                      setPlateCalcInitialWeight(ex.sets[0]?.weightKg || 60);
+                      setPlateCalcInitialWeight(currentSets[0]?.weightKg || 60);
                       setShowPlateCalculator(true);
                     }}
                     className="p-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1"
@@ -561,12 +568,12 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
               </div>
 
               {/* Previous History & Overload Intelligence Banner */}
-              {prev && (
+              {prev && prevSets.length > 0 && (
                 <div className="px-3.5 sm:px-4 py-2 bg-blue-950/30 border-b border-blue-900/40 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400">Previous:</span>
                     <span className="font-mono text-slate-200">
-                      {prev.sets.map(s => `${s.weightKg}kg×${s.reps}`).join(' | ')}
+                      {prevSets.map(s => `${s.weightKg}kg×${s.reps}`).join(' | ')}
                     </span>
                   </div>
                   {overloadAdvice && (
@@ -592,8 +599,9 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/30">
-                    {ex.sets.map((set, setIdx) => {
-                      const prevSet = prev?.sets[setIdx];
+                    {(Array.isArray(ex.sets) ? ex.sets : []).map((set, setIdx) => {
+                      const prevSets = Array.isArray(prev?.sets) ? prev.sets : [];
+                      const prevSet = prevSets[setIdx];
                       return (
                         <tr
                           key={set.id || setIdx}

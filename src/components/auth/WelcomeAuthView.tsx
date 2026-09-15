@@ -18,6 +18,7 @@ import {
 import { api } from '../../lib/api';
 import { AuthUser, UserProfile } from '../../types';
 import { signInWithGoogle } from '../../lib/firebase';
+import { formatAthleteName } from '../../lib/nameUtils';
 
 interface WelcomeAuthViewProps {
   onAuthSuccess: (user: AuthUser, profile: UserProfile) => void;
@@ -62,7 +63,7 @@ export function WelcomeAuthView({
       const fbUser = await signInWithGoogle();
       const uid = fbUser.uid;
       const userEmail = fbUser.email || 'athlete@trainingintel.app';
-      const displayName = fbUser.displayName || userEmail.split('@')[0] || 'Athlete';
+      const displayName = formatAthleteName(fbUser.displayName, userEmail);
 
       api.setSession(uid, uid, userEmail);
 

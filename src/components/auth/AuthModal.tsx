@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthUser, UserProfile } from '../../types';
 import { api } from '../../lib/api';
 import { signInWithGoogle } from '../../lib/firebase';
+import { formatAthleteName } from '../../lib/nameUtils';
 import {
   X,
   User,
@@ -80,7 +81,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       const res = await api.login({ email: email.trim(), password: password.trim() });
-      setSuccessMessage(`Welcome back, ${res.user.username}!`);
+      const cleanAthleteName = formatAthleteName(res.user.username, res.user.email);
+      setSuccessMessage(`Welcome back, ${cleanAthleteName}!`);
       setTimeout(() => {
         onAuthSuccess(res.user, res.profile);
         onClose();
@@ -98,16 +100,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsLoading(true);
 
     try {
+      const cleanAthleteName = formatAthleteName(username.trim(), email.trim());
       const res = await api.register({
         email: email.trim(),
-        username: username.trim(),
+        username: cleanAthleteName,
         password: password.trim(),
         primaryGoal,
         experienceLevel,
         trainingDaysPerWeek,
         weightUnit
       });
-      setSuccessMessage(`Account created! Welcome, ${res.user.username}.`);
+      setSuccessMessage(`Account created! Welcome, ${formatAthleteName(res.user.username, res.user.email)}.`);
       setTimeout(() => {
         onAuthSuccess(res.user, res.profile);
         onClose();
@@ -124,7 +127,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage(null);
     try {
       const res = await api.switchAccount(userId);
-      setSuccessMessage(`Switched active athlete to ${res.user.username}`);
+      const cleanAthleteName = formatAthleteName(res.user.username, res.user.email);
+      setSuccessMessage(`Switched active athlete to ${cleanAthleteName}`);
       setTimeout(() => {
         onAuthSuccess(res.user, res.profile);
         onClose();
@@ -141,7 +145,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage(null);
     try {
       const res = await api.loginAsGuest();
-      setSuccessMessage(`Welcome, ${res.user.username}!`);
+      const cleanAthleteName = formatAthleteName(res.user.username, res.user.email);
+      setSuccessMessage(`Welcome, ${cleanAthleteName}!`);
       setTimeout(() => {
         onAuthSuccess(res.user, res.profile);
         onClose();
@@ -160,7 +165,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const firebaseUser = await signInWithGoogle();
       const userId = firebaseUser.uid;
       const userEmail = firebaseUser.email || 'athlete@google.com';
-      const userDisplayName = firebaseUser.displayName || userEmail.split('@')[0] || 'Athlete';
+      const userDisplayName = formatAthleteName(firebaseUser.displayName, userEmail);
 
       api.setSession(userId, userId, userEmail);
 
@@ -574,12 +579,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                               : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                           }`}
                         >
-                          {acc.username.charAt(0).toUpperCase()}
+                          {formatAthleteName(acc.username, acc.email).charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-slate-900 dark:text-white">
-                              {acc.username}
+                              {formatAthleteName(acc.username, acc.email)}
                             </span>
                             {isCurrent && (
                               <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold text-[9px] uppercase">

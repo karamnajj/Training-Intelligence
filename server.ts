@@ -31,6 +31,103 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Validation to ensure templates, individual exercises, or corrupt entries never masquerade as logged workouts
+function isGenuineWorkout(w: any): boolean {
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return false;
+  if (typeof w.id !== 'string' || !w.id.trim()) return false;
+
+  const id = w.id.trim();
+
+  // 1. Must NOT have IDs associated with templates, exercises, sets, or records
+  if (
+    id.startsWith('template_') ||
+    id.startsWith('tpl_') ||
+    id.startsWith('ex_') ||
+    id.startsWith('we_') ||
+    id.startsWith('s_') ||
+    id.startsWith('set_') ||
+    id.startsWith('rec_') ||
+    id.startsWith('pr_')
+  ) {
+    return false;
+  }
+
+  // 2. Reject individual exercise objects masquerading as workouts
+  if (w.exerciseId || w.exerciseName) {
+    return false;
+  }
+
+  // 3. Reject template structures
+  if (w.category || w.splitType || w.estimatedMinutes) {
+    if (!w.startedAt && !w.completedAt) return false;
+  }
+
+  // 4. Must NOT have exercise-specific planning fields at root level
+  if (w.targetSets !== undefined && w.durationSeconds === undefined) return false;
+  if (w.repMin !== undefined || w.repMax !== undefined || w.suggestedWeightKg !== undefined) return false;
+
+  // 5. Must have an exercises array (workout sessions contain exercises)
+  if (!Array.isArray(w.exercises)) {
+    return false;
+  }
+
+  // 6. Must have real session timing (startedAt or completedAt after Jan 1, 2020)
+  if (!w.startedAt && !w.completedAt) return false;
+  const timeStr = w.completedAt || w.startedAt;
+  const timeNum = new Date(timeStr).getTime();
+  if (isNaN(timeNum) || timeNum < 1577836800000) {
+    return false;
+  }
+
+  return true;
+}
+
+// Format athlete names into clean, capitalized real names (e.g. "karamnajj79@gmail.com" -> "Karam")
+function formatAthleteName(rawName?: string | null, email?: string | null): string {
+  if (rawName && typeof rawName === 'string') {
+    const trimmed = rawName.trim();
+    if (trimmed && trimmed.toLowerCase() !== 'athlete') {
+      const base = trimmed.includes('@') ? trimmed.split('@')[0] : trimmed;
+      if (/^karam/i.test(base)) {
+        return 'Karam';
+      }
+      if (/\d/.test(base) || /[._-]/.test(base)) {
+        const lettersOnly = base.replace(/[^a-zA-Z]/g, ' ').trim();
+        const parts = lettersOnly.split(/\s+/).filter(p => p.length >= 2);
+        if (parts.length > 0) {
+          return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+        }
+      } else {
+        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+      }
+    }
+  }
+
+  if (email && typeof email === 'string' && email.trim().length > 0) {
+    const handle = email.trim().split('@')[0];
+    if (/^karam/i.test(handle)) {
+      return 'Karam';
+    }
+    const cleaned = handle.replace(/\d+$/g, '').replace(/[._-]+/g, ' ').trim();
+    if (cleaned.length >= 2) {
+      const parts = cleaned.split(/\s+/).filter(p => p.length >= 2);
+      if (parts.length > 0) {
+        return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+      }
+      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+    }
+    const alpha = handle.replace(/[^a-zA-Z]/g, ' ').trim();
+    if (alpha.length >= 2) {
+      const parts = alpha.split(/\s+/).filter(p => p.length >= 2);
+      if (parts.length > 0) {
+        return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+      }
+    }
+  }
+
+  return 'Athlete';
+}
+
 // User Account Structure for Isolated Multi-User Persistence
 interface UserAccount {
   id: string;
@@ -42,6 +139,8 @@ interface UserAccount {
   workouts: Workout[];
   templates: WorkoutTemplate[];
   personalRecords: PersonalRecord[];
+  deletedWorkoutIds: string[];
+  chatHistory?: any[];
 }
 
 // Persistent Storage Layer
@@ -76,23 +175,40 @@ function seedPrimaryUserAccounts() {
       profile: guestProfile,
       workouts: getSeedWorkouts(),
       templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}` })),
-      personalRecords: [...SEED_PERSONAL_RECORDS]
+      personalRecords: [...SEED_PERSONAL_RECORDS],
+      deletedWorkoutIds: []
     };
 
     userAccounts.set(guestId, guestAccount);
   } else {
+    if (!Array.isArray(guestAccount.deletedWorkoutIds)) {
+      guestAccount.deletedWorkoutIds = [];
+    }
     if (!Array.isArray(guestAccount.workouts) || guestAccount.workouts.length === 0) {
       guestAccount.workouts = getSeedWorkouts();
       guestAccount.personalRecords = [...SEED_PERSONAL_RECORDS];
     }
   }
 
-  // Ensure loaded user accounts have their PRs maintained
+  // Ensure loaded user accounts have their PRs maintained, invalid workouts removed, and names normalized
   for (const account of userAccounts.values()) {
-    if (account.id !== guestId) {
-      if (!Array.isArray(account.workouts)) {
-        account.workouts = [];
+    if (account.email) {
+      account.username = formatAthleteName(account.username, account.email);
+      if (account.profile) {
+        account.profile.name = formatAthleteName(account.profile.name, account.email);
       }
+    }
+    if (!Array.isArray(account.deletedWorkoutIds)) {
+      account.deletedWorkoutIds = [];
+    }
+    const delSet = new Set(account.deletedWorkoutIds);
+    if (!Array.isArray(account.workouts)) {
+      account.workouts = [];
+    } else {
+      // Purge any non-genuine workout (templates, corrupted items, or previously deleted items)
+      account.workouts = account.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+    }
+    if (account.id !== guestId) {
       rebuildPersonalRecordsForUser(account);
     }
   }
@@ -118,7 +234,19 @@ function loadDatabaseFromDisk() {
             if (Array.isArray(data.users) && data.users.length > 0) {
               for (const u of data.users) {
                 if (!u || !u.id) continue;
+                if (!Array.isArray(u.deletedWorkoutIds)) u.deletedWorkoutIds = [];
                 if (!Array.isArray(u.workouts)) u.workouts = [];
+                const delSet = new Set(u.deletedWorkoutIds);
+                // Filter out invalid or deleted workouts immediately
+                u.workouts = u.workouts.filter((w: any) => isGenuineWorkout(w) && !delSet.has(w.id));
+
+                if (u.email) {
+                  u.username = formatAthleteName(u.username, u.email);
+                  if (u.profile) {
+                    u.profile.name = formatAthleteName(u.profile.name, u.email);
+                  }
+                }
+
                 const existing = userAccounts.get(u.id);
                 if (!existing) {
                   if (u.id !== 'usr_guest_demo') {
@@ -126,13 +254,20 @@ function loadDatabaseFromDisk() {
                   }
                   userAccounts.set(u.id, u);
                 } else {
-                  // Merge workouts additively
+                  // Merge deletedWorkoutIds
+                  for (const did of u.deletedWorkoutIds) {
+                    if (!existing.deletedWorkoutIds.includes(did)) {
+                      existing.deletedWorkoutIds.push(did);
+                    }
+                  }
+                  const existingDelSet = new Set(existing.deletedWorkoutIds);
                   const existingIds = new Set((existing.workouts || []).map((w: any) => w.id));
                   for (const w of u.workouts) {
-                    if (!existingIds.has(w.id)) {
+                    if (isGenuineWorkout(w) && !existingDelSet.has(w.id) && !existingIds.has(w.id)) {
                       existing.workouts.push(w);
                     }
                   }
+                  existing.workouts = existing.workouts.filter((w: any) => isGenuineWorkout(w) && !existingDelSet.has(w.id));
                   if (existing.id !== 'usr_guest_demo') {
                     rebuildPersonalRecordsForUser(existing);
                   }
@@ -186,38 +321,14 @@ function saveDatabaseToDisk() {
     const backupFile = path.join(primaryDir, 'database.backup.json');
     const tempFile = `${primaryFile}.tmp`;
 
-    // Safeguard: Compare against disk before writing
-    // If the database on disk has workouts for a user, but in-memory has 0 workouts, merge them from disk!
-    if (fs.existsSync(primaryFile)) {
-      try {
-        const diskRaw = fs.readFileSync(primaryFile, 'utf-8');
-        if (diskRaw.trim()) {
-          const diskData = JSON.parse(diskRaw);
-          if (Array.isArray(diskData.users)) {
-            for (const diskUser of diskData.users) {
-              if (Array.isArray(diskUser.workouts) && diskUser.workouts.length > 0) {
-                const memUser = userAccounts.get(diskUser.id);
-                if (memUser) {
-                  if (!Array.isArray(memUser.workouts) || memUser.workouts.length === 0) {
-                    console.log(`[Storage] Rescued ${diskUser.workouts.length} workouts for user ${diskUser.id} from disk.`);
-                    memUser.workouts = diskUser.workouts;
-                  } else {
-                    const memWorkoutIds = new Set(memUser.workouts.map((w: any) => w.id));
-                    for (const dw of diskUser.workouts) {
-                      if (!memWorkoutIds.has(dw.id)) {
-                        memUser.workouts.push(dw);
-                      }
-                    }
-                  }
-                } else {
-                  userAccounts.set(diskUser.id, diskUser);
-                }
-              }
-            }
-          }
-        }
-      } catch (checkErr) {
-        console.warn('[Storage] Safety check notice:', checkErr);
+    // Ensure all in-memory accounts have clean genuine workouts and tombstones
+    for (const u of userAccounts.values()) {
+      if (!Array.isArray(u.deletedWorkoutIds)) u.deletedWorkoutIds = [];
+      const delSet = new Set(u.deletedWorkoutIds);
+      if (Array.isArray(u.workouts)) {
+        u.workouts = u.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+      } else {
+        u.workouts = [];
       }
     }
 
@@ -327,7 +438,9 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
               (u: any) => u.id === id || (u.email && u.email.toLowerCase() === cleanEmail)
             );
             if (diskMatch) {
-              if (!Array.isArray(diskMatch.workouts)) diskMatch.workouts = [];
+              if (!Array.isArray(diskMatch.deletedWorkoutIds)) diskMatch.deletedWorkoutIds = [];
+              const diskDelSet = new Set(diskMatch.deletedWorkoutIds);
+              diskMatch.workouts = (diskMatch.workouts || []).filter((w: any) => isGenuineWorkout(w) && !diskDelSet.has(w.id));
               rebuildPersonalRecordsForUser(diskMatch);
               userAccounts.set(diskMatch.id, diskMatch);
               console.log(`[Storage] Restored existing account ${diskMatch.id} (${diskMatch.email}) from ${fp} with ${diskMatch.workouts.length} workouts`);
@@ -342,7 +455,7 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
   }
 
   // Truly a new user account: create initial container
-  const namePart = cleanEmail.includes('@') ? cleanEmail.split('@')[0] : 'Athlete';
+  const namePart = formatAthleteName(null, cleanEmail);
   const newAccount: UserAccount = {
     id,
     email: cleanEmail,
@@ -363,7 +476,8 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
     },
     workouts: [],
     templates: WORKOUT_TEMPLATES,
-    personalRecords: []
+    personalRecords: [],
+    deletedWorkoutIds: []
   };
   userAccounts.set(id, newAccount);
   saveDatabaseToDisk();
@@ -486,7 +600,14 @@ function rebuildPersonalRecordsForUser(user: UserAccount) {
 
   for (const w of chronologicalWorkouts) {
     for (const ex of w.exercises || []) {
-      const validSets = (ex.sets || []).filter(s => s.completed && (Number(s.weightKg) || 0) > 0 && (Number(s.reps) || 0) > 0);
+      const setsArr: any[] = Array.isArray(ex?.sets)
+        ? ex.sets
+        : (ex?.sets && typeof ex.sets === 'object'
+          ? Object.values(ex.sets)
+          : (typeof ex?.sets === 'number'
+            ? Array.from({ length: ex.sets }).map(() => ({ completed: true, weightKg: (ex as any).suggestedWeightKg || (ex as any).weightKg || 0, reps: (ex as any).repMin || (ex as any).reps || 0 }))
+            : []));
+      const validSets = setsArr.filter(s => s && s.completed && (Number(s.weightKg) || 0) > 0 && (Number(s.reps) || 0) > 0);
       if (validSets.length === 0) continue;
 
       for (const s of validSets) {
@@ -608,7 +729,7 @@ app.post('/api/auth/register', (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
-    const athleteName = (username || normalizedEmail.split('@')[0] || 'Athlete').trim();
+    const athleteName = formatAthleteName(username, normalizedEmail);
 
     // Check if email already registered
     let existingAccount: UserAccount | null = null;
@@ -672,6 +793,7 @@ app.post('/api/auth/register', (req, res) => {
       createdAt: new Date().toISOString(),
       profile: newProfile,
       workouts: [],
+      deletedWorkoutIds: [],
       templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}` })),
       personalRecords: []
     };
@@ -721,9 +843,7 @@ app.post('/api/auth/login', (req, res) => {
 
     // Auto-provision user account if it doesn't exist yet so valid credentials never fail!
     if (!foundAccount) {
-      const derivedName = normalizedEmail.includes('@')
-        ? normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-        : 'Athlete';
+      const derivedName = formatAthleteName(null, normalizedEmail);
       const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
       const newProfile: UserProfile = {
@@ -740,6 +860,7 @@ app.post('/api/auth/login', (req, res) => {
         createdAt: new Date().toISOString(),
         profile: newProfile,
         workouts: [],
+        deletedWorkoutIds: [],
         templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}` })),
         personalRecords: []
       };
@@ -758,6 +879,11 @@ app.post('/api/auth/login', (req, res) => {
       if (!Array.isArray(foundAccount.personalRecords)) {
         foundAccount.personalRecords = [];
       }
+    }
+
+    foundAccount.username = formatAthleteName(foundAccount.username, foundAccount.email);
+    if (foundAccount.profile) {
+      foundAccount.profile.name = formatAthleteName(foundAccount.profile.name, foundAccount.email);
     }
 
     const token = `tok_${foundAccount.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -799,6 +925,11 @@ app.get('/api/auth/me', (req, res) => {
   }
   activeSessions.set(token, { userId: user.id, createdAt: Date.now() });
 
+  user.username = formatAthleteName(user.username, user.email);
+  if (user.profile) {
+    user.profile.name = formatAthleteName(user.profile.name, user.email);
+  }
+
   res.json({
     success: true,
     token,
@@ -808,7 +939,8 @@ app.get('/api/auth/me', (req, res) => {
       username: user.username,
       createdAt: user.createdAt
     },
-    profile: user.profile
+    profile: user.profile,
+    deletedWorkoutIds: user.deletedWorkoutIds || []
   });
 });
 
@@ -817,7 +949,7 @@ app.get('/api/auth/users', (req, res) => {
   const list = Array.from(userAccounts.values()).map(u => ({
     id: u.id,
     email: u.email,
-    username: u.username,
+    username: formatAthleteName(u.username, u.email),
     primaryGoal: u.profile.primaryGoal,
     experienceLevel: u.profile.experienceLevel,
     workoutCount: u.workouts.length,
@@ -834,6 +966,11 @@ app.post('/api/auth/switch', (req, res) => {
   if (!target) {
     res.status(404).json({ error: 'User account not found' });
     return;
+  }
+
+  target.username = formatAthleteName(target.username, target.email);
+  if (target.profile) {
+    target.profile.name = formatAthleteName(target.profile.name, target.email);
   }
 
   const token = `tok_${target.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -894,6 +1031,7 @@ app.post('/api/auth/guest', (req, res) => {
         createdAt: new Date().toISOString(),
         profile: guestProfile,
         workouts: getSeedWorkouts(),
+        deletedWorkoutIds: [],
         templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}` })),
         personalRecords: [...SEED_PERSONAL_RECORDS]
       };
@@ -974,7 +1112,9 @@ app.post('/api/profile', (req, res) => {
   }
   user.profile = { ...user.profile, ...req.body };
   if (req.body.name) {
-    user.username = req.body.name;
+    const formatted = formatAthleteName(req.body.name, user.email);
+    user.username = formatted;
+    user.profile.name = formatted;
   }
   saveDatabaseToDisk();
   res.json({ success: true, profile: user.profile });
@@ -1008,6 +1148,15 @@ app.get('/api/exercises/:id', (req, res) => {
 });
 
 // 4. Workouts
+app.get('/api/workouts/deleted-ids', (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized. Please sign in.' });
+    return;
+  }
+  res.json({ deletedWorkoutIds: user.deletedWorkoutIds || [] });
+});
+
 app.get('/api/workouts', (req, res) => {
   const user = getUserFromRequest(req);
   if (!user) {
@@ -1017,6 +1166,9 @@ app.get('/api/workouts', (req, res) => {
   if (!Array.isArray(user.workouts)) {
     user.workouts = [];
   }
+  const delSet = new Set(user.deletedWorkoutIds || []);
+  user.workouts = user.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+  
   // Sort newest first safely without NaN bugs
   const sorted = [...user.workouts].sort((a, b) => {
     const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
@@ -1053,16 +1205,22 @@ app.post('/api/workouts', (req, res) => {
   if (!workout.id) {
     workout.id = `workout_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   }
-  if (!workout.startedAt) {
-    workout.startedAt = new Date().toISOString();
-  }
-  if (!workout.completedAt) {
-    workout.completedAt = new Date().toISOString();
+
+  // STRICT VALIDATION: reject exercises, templates, or malformed data posted as a workout
+  if (!isGenuineWorkout(workout)) {
+    res.status(400).json({ error: 'Invalid workout session: workouts must contain an exercises array and valid timestamps, and cannot be individual exercise records.' });
+    return;
   }
 
   if (!Array.isArray(user.workouts)) {
     user.workouts = [];
   }
+  if (!Array.isArray(user.deletedWorkoutIds)) {
+    user.deletedWorkoutIds = [];
+  }
+
+  // If this ID was previously deleted but user explicitly saved it, clear tombstone
+  user.deletedWorkoutIds = user.deletedWorkoutIds.filter(id => id !== workout.id);
 
   // Calculate volume and muscles if missing
   let vol = 0;
@@ -1071,8 +1229,15 @@ app.post('/api/workouts', (req, res) => {
 
   for (const ex of workout.exercises || []) {
     const def = EXERCISES_MAP[ex.exerciseId];
-    for (const s of ex.sets || []) {
-      if (s.completed && s.type !== 'warmup') {
+    const setsArr: any[] = Array.isArray(ex?.sets)
+      ? ex.sets
+      : (ex?.sets && typeof ex.sets === 'object'
+        ? Object.values(ex.sets)
+        : (typeof ex?.sets === 'number'
+          ? Array.from({ length: ex.sets }).map(() => ({ completed: true, weightKg: (ex as any).suggestedWeightKg || (ex as any).weightKg || 0, reps: (ex as any).repMin || (ex as any).reps || 0, type: 'normal' }))
+          : []));
+    for (const s of setsArr) {
+      if (s && s.completed && s.type !== 'warmup') {
         const setWeight = Number(s.weightKg) || 0;
         const setReps = Number(s.reps) || 0;
         vol += setWeight * setReps;
@@ -1128,7 +1293,17 @@ app.delete('/api/workouts/:id', (req, res) => {
   if (!Array.isArray(user.workouts)) {
     user.workouts = [];
   }
-  user.workouts = user.workouts.filter(w => w.id !== req.params.id);
+  if (!Array.isArray(user.deletedWorkoutIds)) {
+    user.deletedWorkoutIds = [];
+  }
+
+  const workoutId = req.params.id;
+  // Persistent tombstone: record that this workout was explicitly deleted
+  if (workoutId && !user.deletedWorkoutIds.includes(workoutId)) {
+    user.deletedWorkoutIds.push(workoutId);
+  }
+
+  user.workouts = user.workouts.filter(w => w.id !== workoutId);
   rebuildPersonalRecordsForUser(user);
   saveDatabaseToDisk();
 
@@ -1137,9 +1312,80 @@ app.delete('/api/workouts/:id', (req, res) => {
 
   res.json({
     success: true,
-    deletedId: req.params.id,
+    deletedId: workoutId,
+    deletedWorkoutIds: user.deletedWorkoutIds,
     workouts: user.workouts,
     personalRecords: user.personalRecords,
+    muscles: exposures,
+    radar
+  });
+});
+
+// Purge invalid workouts (templates or corrupted records mistakenly stored in workouts)
+app.post('/api/workouts/purge-invalid', (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized. Please sign in.' });
+    return;
+  }
+  if (!Array.isArray(user.workouts)) user.workouts = [];
+  if (!Array.isArray(user.deletedWorkoutIds)) user.deletedWorkoutIds = [];
+
+  const initialCount = user.workouts.length;
+  for (const w of user.workouts) {
+    if (!isGenuineWorkout(w) || w.id.startsWith('template_') || w.id.startsWith('tpl_')) {
+      if (!user.deletedWorkoutIds.includes(w.id)) {
+        user.deletedWorkoutIds.push(w.id);
+      }
+    }
+  }
+
+  user.workouts = user.workouts.filter(w => isGenuineWorkout(w));
+  rebuildPersonalRecordsForUser(user);
+  saveDatabaseToDisk();
+
+  const exposures = calculateMuscleExposures(user.workouts, EXERCISES_MAP);
+  const radar = buildTrainingRadar(user.workouts, EXERCISES_MAP);
+
+  res.json({
+    success: true,
+    purgedCount: initialCount - user.workouts.length,
+    deletedWorkoutIds: user.deletedWorkoutIds,
+    workouts: user.workouts,
+    personalRecords: user.personalRecords,
+    muscles: exposures,
+    radar
+  });
+});
+
+// Clear all logged workouts for athlete (clean slate)
+app.delete('/api/workouts', (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized. Please sign in.' });
+    return;
+  }
+  if (!Array.isArray(user.workouts)) user.workouts = [];
+  if (!Array.isArray(user.deletedWorkoutIds)) user.deletedWorkoutIds = [];
+
+  for (const w of user.workouts) {
+    if (w && w.id && !user.deletedWorkoutIds.includes(w.id)) {
+      user.deletedWorkoutIds.push(w.id);
+    }
+  }
+
+  user.workouts = [];
+  user.personalRecords = [];
+  saveDatabaseToDisk();
+
+  const exposures = calculateMuscleExposures([], EXERCISES_MAP);
+  const radar = buildTrainingRadar([], EXERCISES_MAP);
+
+  res.json({
+    success: true,
+    workouts: [],
+    personalRecords: [],
+    deletedWorkoutIds: user.deletedWorkoutIds,
     muscles: exposures,
     radar
   });
@@ -1156,6 +1402,11 @@ app.post('/api/workouts/restore', (req, res) => {
   if (!Array.isArray(user.workouts)) {
     user.workouts = [];
   }
+  if (!Array.isArray(user.deletedWorkoutIds)) {
+    user.deletedWorkoutIds = [];
+  }
+
+  const delSet = new Set(user.deletedWorkoutIds);
 
   // Only seed sample workouts if the user is explicitly the guest reviewer account
   if (req.body?.includeSample === true && (user.id === 'usr_guest_demo' || user.email === 'guest@trainingintel.demo')) {
@@ -1163,7 +1414,7 @@ app.post('/api/workouts/restore', (req, res) => {
     const existingIds = new Set(user.workouts.map(w => w.id));
 
     for (const sw of defaultHistory) {
-      if (!existingIds.has(sw.id)) {
+      if (!existingIds.has(sw.id) && !delSet.has(sw.id) && isGenuineWorkout(sw)) {
         user.workouts.push(sw);
       }
     }
@@ -1203,12 +1454,28 @@ app.post('/api/workouts/sync', (req, res) => {
   if (!Array.isArray(user.workouts)) {
     user.workouts = [];
   }
+  if (!Array.isArray(user.deletedWorkoutIds)) {
+    user.deletedWorkoutIds = [];
+  }
+
+  // 1. Ingest any client-side tombstones
+  const incomingDeleted: string[] = Array.isArray(req.body?.deletedWorkoutIds) ? req.body.deletedWorkoutIds : [];
+  for (const did of incomingDeleted) {
+    if (typeof did === 'string' && did && !user.deletedWorkoutIds.includes(did)) {
+      user.deletedWorkoutIds.push(did);
+    }
+  }
+
+  const deletedSet = new Set(user.deletedWorkoutIds);
+
+  // 2. Clean current server workouts against tombstones and non-genuine objects
+  user.workouts = user.workouts.filter(w => isGenuineWorkout(w) && !deletedSet.has(w.id));
 
   const incomingWorkouts: Workout[] = Array.isArray(req.body?.workouts) ? req.body.workouts : [];
   const existingMap = new Map<string, Workout>();
 
   for (const w of user.workouts) {
-    if (w && w.id) {
+    if (w && w.id && isGenuineWorkout(w) && !deletedSet.has(w.id)) {
       existingMap.set(w.id, w);
     }
   }
@@ -1216,13 +1483,17 @@ app.post('/api/workouts/sync', (req, res) => {
   let addedCount = 0;
   for (const w of incomingWorkouts) {
     if (w && w.id) {
+      // STRICT FILTER: reject deleted items and reject templates masquerading as workouts
+      if (deletedSet.has(w.id) || !isGenuineWorkout(w)) {
+        continue;
+      }
       const existing = existingMap.get(w.id);
       if (!existing) {
         existingMap.set(w.id, w);
         addedCount++;
       } else {
-        const currSets = existing.totalSets || (existing.exercises ? existing.exercises.reduce((acc, e) => acc + (e.sets?.length || 0), 0) : 0);
-        const inSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (e.sets?.length || 0), 0) : 0);
+        const currSets = existing.totalSets || (existing.exercises ? existing.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+        const inSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
         if (inSets >= currSets || w.completedAt) {
           existingMap.set(w.id, { ...existing, ...w });
         }
@@ -1249,6 +1520,7 @@ app.post('/api/workouts/sync', (req, res) => {
     success: true,
     addedCount,
     workouts: user.workouts,
+    deletedWorkoutIds: user.deletedWorkoutIds || [],
     personalRecords: user.personalRecords,
     muscles: exposures,
     radar,
@@ -1534,6 +1806,39 @@ app.post('/api/data/sync', (req, res) => {
   });
 });
 
+// 9b. AI Chat History Management Endpoints
+app.get('/api/ai/chat-history', (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    res.json({ success: true, history: [] });
+    return;
+  }
+  res.json({ success: true, history: user.chatHistory || [] });
+});
+
+app.post('/api/ai/chat-history', (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { history } = req.body;
+  if (Array.isArray(history)) {
+    user.chatHistory = history.slice(-100);
+    saveDatabaseToDisk();
+  }
+  res.json({ success: true, history: user.chatHistory || [] });
+});
+
+app.delete('/api/ai/chat-history', (req, res) => {
+  const user = getUserFromRequest(req);
+  if (user) {
+    user.chatHistory = [];
+    saveDatabaseToDisk();
+  }
+  res.json({ success: true });
+});
+
 // 10. AI Coaching Chat Endpoint
 app.post('/api/ai/chat', async (req, res) => {
   try {
@@ -1557,11 +1862,20 @@ app.post('/api/ai/chat', async (req, res) => {
       date: new Date(w.completedAt || w.startedAt).toISOString().slice(0, 10),
       durationMinutes: Math.round((w.durationSeconds || 0) / 60) || 45,
       totalVolumeKg: w.totalVolumeKg,
-      exercises: w.exercises.map(ex => ({
-        name: ex.exerciseName,
-        setsCount: ex.sets.length,
-        topSet: ex.sets.reduce((max, s) => s.weightKg > max.weightKg ? s : max, ex.sets[0] || { weightKg: 0, reps: 0 })
-      }))
+      exercises: (w.exercises || []).map(ex => {
+        const setsArr: any[] = Array.isArray(ex?.sets)
+          ? ex.sets
+          : (ex?.sets && typeof ex.sets === 'object'
+            ? Object.values(ex.sets)
+            : (typeof ex?.sets === 'number'
+              ? Array.from({ length: ex.sets }).map(() => ({ weightKg: (ex as any).suggestedWeightKg || (ex as any).weightKg || 0, reps: (ex as any).repMin || (ex as any).reps || 0 }))
+              : []));
+        return {
+          name: ex.exerciseName || ex.exerciseId,
+          setsCount: setsArr.length,
+          topSet: setsArr.reduce((max, s) => (Number(s?.weightKg) || 0) > (Number(max?.weightKg) || 0) ? s : max, setsArr[0] || { weightKg: 0, reps: 0 })
+        };
+      })
     }));
 
     // Build structured domain context without dumping raw database

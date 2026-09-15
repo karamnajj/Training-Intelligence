@@ -301,11 +301,18 @@ export function calculateMuscleExposures(
     const daysAgo = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
     const recencyWeight = getRecencyWeight(daysAgo);
 
-    for (const exEntry of workout.exercises) {
+    for (const exEntry of workout.exercises || []) {
       const exerciseDef = exercisesMap[exEntry.exerciseId];
       if (!exerciseDef) continue;
 
-      const workingSets = exEntry.sets.filter(s => s.completed && s.type !== 'warmup').length;
+      const rawSets = Array.isArray(exEntry?.sets)
+        ? exEntry.sets
+        : (exEntry?.sets && typeof exEntry.sets === 'object'
+          ? Object.values(exEntry.sets)
+          : (typeof exEntry?.sets === 'number'
+            ? Array.from({ length: exEntry.sets }).map(() => ({ completed: true, type: 'normal' }))
+            : []));
+      const workingSets = (rawSets as any[]).filter(s => s && s.completed && s.type !== 'warmup').length;
       if (workingSets === 0) continue;
 
       for (const contrib of exerciseDef.muscles) {
@@ -431,10 +438,17 @@ export function buildTrainingRadar(
   let upperSets = 0;
 
   for (const w of recentWorkouts) {
-    for (const ex of w.exercises) {
+    for (const ex of (w.exercises || [])) {
       const def = exercisesMap[ex.exerciseId];
       if (!def) continue;
-      const count = ex.sets.filter(s => s.completed).length;
+      const rawSets = Array.isArray(ex?.sets)
+        ? ex.sets
+        : (ex?.sets && typeof ex.sets === 'object'
+          ? Object.values(ex.sets)
+          : (typeof ex?.sets === 'number'
+            ? Array.from({ length: ex.sets }).map(() => ({ completed: true }))
+            : []));
+      const count = (rawSets as any[]).filter(s => s && s.completed).length;
       if (def.movementPattern.startsWith('push')) pushSets += count;
       if (def.movementPattern.startsWith('pull')) pullSets += count;
       if (['squat', 'hinge', 'lunge'].includes(def.movementPattern)) legSets += count;

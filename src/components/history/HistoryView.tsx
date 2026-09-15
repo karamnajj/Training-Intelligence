@@ -13,7 +13,9 @@ import {
   ChevronUp,
   Search,
   Dumbbell,
-  Plus
+  Plus,
+  AlertTriangle,
+  Check
 } from 'lucide-react';
 
 interface HistoryViewProps {
@@ -22,7 +24,7 @@ interface HistoryViewProps {
   onUpdateWorkout: (workout: Workout) => void;
   onDeleteWorkout: (id: string) => void;
   onStartNewWorkout: () => void;
-  onRestoreHistory?: () => void;
+  onClearAllWorkouts?: () => void;
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
@@ -31,13 +33,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   onUpdateWorkout,
   onDeleteWorkout,
   onStartNewWorkout,
-  onRestoreHistory
+  onClearAllWorkouts
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(
     workouts[0]?.id || null
   );
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
 
   const filteredWorkouts = workouts.filter(w => {
     const matchesName = w.name?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -70,14 +74,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-          {onRestoreHistory && (
+          {onClearAllWorkouts && workouts.length > 0 && (
             <button
-              onClick={onRestoreHistory}
-              title="Synchronize and refresh workouts from database"
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold text-xs shadow-2xs transition-all active:scale-[0.98]"
+              onClick={() => setShowClearConfirmModal(true)}
+              title="Permanently wipe all workouts from history"
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 font-semibold text-xs transition-all active:scale-[0.98]"
             >
-              <RotateCcw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Sync Logbook</span>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Reset Logbook</span>
             </button>
           )}
 
@@ -170,13 +174,35 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       <RotateCcw className="w-3.5 h-3.5" /> Repeat
                     </button>
 
-                    <button
-                      onClick={() => onDeleteWorkout(w.id)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                      title="Delete workout record"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {confirmDeleteId === w.id ? (
+                      <div className="flex items-center gap-1 bg-rose-50 dark:bg-rose-950/60 p-1 rounded-xl border border-rose-200 dark:border-rose-900/60" onClick={e => e.stopPropagation()}>
+                        <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 px-1">Delete?</span>
+                        <button
+                          onClick={() => {
+                            onDeleteWorkout(w.id);
+                            setConfirmDeleteId(null);
+                          }}
+                          className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors"
+                          title="Permanently remove"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-1.5 py-1 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-medium"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(w.id)}
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                        title="Delete workout record"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
 
                     <button
                       onClick={() => toggleExpand(w.id)}
@@ -201,37 +227,56 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {w.exercises?.map((ex, i) => (
-                        <div
-                          key={ex.id || i}
-                          className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2"
-                        >
-                          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                            <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                              {i + 1}. {ex.exerciseName}
-                            </span>
-                            <span className="text-[11px] text-slate-500">
-                              {ex.sets.filter(s => s.completed).length} work sets
-                            </span>
-                          </div>
+                      {w.exercises?.map((ex, i) => {
+                        const rawSets: any[] = Array.isArray(ex?.sets)
+                          ? ex.sets
+                          : (ex?.sets && typeof ex.sets === 'object'
+                            ? Object.values(ex.sets)
+                            : (typeof ex?.sets === 'number'
+                              ? Array.from({ length: ex.sets }).map((_, sIdx) => ({
+                                  id: `s_${i}_${sIdx}`,
+                                  setNumber: sIdx + 1,
+                                  type: 'normal',
+                                  weightKg: (ex as any).suggestedWeightKg || (ex as any).weightKg || 0,
+                                  reps: (ex as any).repMin || (ex as any).reps || 10,
+                                  completed: true
+                                }))
+                              : []));
 
-                          <div className="space-y-1 text-xs font-mono">
-                            {ex.sets.map((s, sIdx) => (
-                              <div
-                                key={s.id || sIdx}
-                                className="flex items-center justify-between py-1 text-slate-600 dark:text-slate-300"
-                              >
-                                <span>
-                                  Set {s.setNumber} ({s.type})
-                                </span>
-                                <span className="font-bold text-slate-900 dark:text-white">
-                                  {s.weightKg} kg × {s.reps} reps
-                                </span>
-                              </div>
-                            ))}
+                        const completedCount = rawSets.filter(s => s && s.completed).length;
+
+                        return (
+                          <div
+                            key={ex.id || i}
+                            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2"
+                          >
+                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                              <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                {i + 1}. {ex.exerciseName}
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                {completedCount} work {completedCount === 1 ? 'set' : 'sets'}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1 text-xs font-mono">
+                              {rawSets.map((s, sIdx) => (
+                                <div
+                                  key={s.id || sIdx}
+                                  className="flex items-center justify-between py-1 text-slate-600 dark:text-slate-300"
+                                >
+                                  <span>
+                                    Set {s.setNumber || sIdx + 1} ({s.type || 'normal'})
+                                  </span>
+                                  <span className="font-bold text-slate-900 dark:text-white">
+                                    {s.weightKg ?? 0} kg × {s.reps ?? 0} reps
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -246,19 +291,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 No workouts matching your view.
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                Log a new session or click below to restore your complete recorded history.
+                Log a new session to record your training volume and muscle exposure.
               </p>
             </div>
-            <div className="flex items-center justify-center gap-3 pt-2 flex-wrap">
-              {onRestoreHistory && (
-                <button
-                  onClick={onRestoreHistory}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 font-bold text-xs shadow-2xs transition-all active:scale-[0.98]"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  Restore Workout History
-                </button>
-              )}
+            <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 onClick={onStartNewWorkout}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all active:scale-[0.98]"
@@ -281,6 +317,46 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           }}
           onClose={() => setEditingWorkout(null)}
         />
+      )}
+
+      {/* Clear All History Modal */}
+      {showClearConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-5">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 flex items-center justify-center text-rose-600 dark:text-rose-400">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                Reset Complete Logbook?
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                This will permanently delete all {workouts.length} recorded workouts from your local vault, server database, and cloud backup. All items will be permanently tombstoned so they cannot reappear.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirmModal(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowClearConfirmModal(false);
+                  if (onClearAllWorkouts) onClearAllWorkouts();
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md shadow-rose-500/20 transition-all active:scale-[0.98]"
+              >
+                Permanently Delete All
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

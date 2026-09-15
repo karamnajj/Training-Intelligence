@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Markdown from 'react-markdown';
 import {
   TrainingRadar,
@@ -22,7 +22,8 @@ import {
   ShieldCheck,
   RotateCcw,
   Clock,
-  Dumbbell
+  Dumbbell,
+  ChevronDown
 } from 'lucide-react';
 
 interface AITrainerProps {
@@ -38,23 +39,79 @@ export const AITrainer: React.FC<AITrainerProps> = ({
   onStartGeneratedWorkout,
   onSaveTemplate
 }) => {
-  const [messages, setMessages] = useState<AIMessage[]>([
-    {
-      id: 'msg_welcome',
-      sender: 'assistant',
-      timestamp: new Date().toISOString(),
-      text: `Hello! I am your **Training Intelligence AI Coach**.\n\nI have real-time access to your logged workout history, muscle fatigue models, and 1RM progressions. \n\n**Current Status**:\n• **Recommended Focus Today**: ${radar.suggestedFocusToday.title}\n• **Rationale**: ${radar.suggestedFocusToday.rationale}\n\nAsk me any question or request a hyper-targeted workout!`,
-      suggestedActions: [
-        'What should I train today?',
-        'Generate a workout for today',
-        'Which muscles am I neglecting?',
-        'How is my bench progression?'
-      ]
-    }
-  ]);
+  const getDefaultWelcome = useCallback((): AIMessage => ({
+    id: 'msg_welcome',
+    sender: 'assistant',
+    timestamp: new Date().toISOString(),
+    text: `Hello! I am your **Training Intelligence AI Coach**.\n\nI have real-time access to your logged workout history, muscle fatigue models, and 1RM progressions. \n\n**Current Status**:\n• **Recommended Focus Today**: ${radar.suggestedFocusToday.title}\n• **Rationale**: ${radar.suggestedFocusToday.rationale}\n\nAsk me any question or request a hyper-targeted workout!`,
+    suggestedActions: [
+      'What should I train today?',
+      'Generate a workout for today',
+      'Which muscles am I neglecting?',
+      'How is my bench progression?'
+    ]
+  }), [radar.suggestedFocusToday.title, radar.suggestedFocusToday.rationale]);
 
+  const [messages, setMessages] = useState<AIMessage[]>([getDefaultWelcome()]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Auto-scroll and user scroll tracking refs & state
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
+    }
+  };
+
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const nearBottom = distanceFromBottom <= 120;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollBottomBtn(distanceFromBottom > 160);
+  };
+
+  // Restore persisted chat history on mount
+  useEffect(() => {
+    let isMounted = true;
+    api.getChatHistory().then((saved) => {
+      if (!isMounted) return;
+      if (Array.isArray(saved) && saved.length > 0) {
+        setMessages(saved);
+      } else {
+        setMessages([getDefaultWelcome()]);
+      }
+      setTimeout(() => scrollToBottom('auto'), 80);
+    }).catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [getDefaultWelcome]);
+
+  // Auto-scroll down when new messages are added or coach is typing, unless user scrolled up
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    // Always scroll down immediately if the message was sent by the user, or if user is near bottom, or when loading starts
+    if (lastMsg?.sender === 'user' || isNearBottomRef.current || isLoading) {
+      scrollToBottom('smooth');
+    }
+  }, [messages, isLoading]);
+
+  // Helper to append message and automatically persist to vault and backend
+  const appendMessage = (newMsg: AIMessage) => {
+    setMessages(prev => {
+      const updated = [...prev, newMsg];
+      api.saveChatHistory(updated).catch(() => {});
+      return updated;
+    });
+  };
 
   // Quick Workout Generator options
   const [customFocus, setCustomFocus] = useState(radar.suggestedFocusToday.title);
@@ -73,6 +130,16 @@ export const AITrainer: React.FC<AITrainerProps> = ({
     'Full Body Functional'
   ];
 
+  const handleClearChat = async () => {
+    const fresh = [getDefaultWelcome()];
+    setMessages(fresh);
+    await api.clearChatHistory();
+    await api.saveChatHistory(fresh);
+    isNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    scrollToBottom('smooth');
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputMessage).trim();
     if (!text || isLoading) return;
@@ -84,7 +151,10 @@ export const AITrainer: React.FC<AITrainerProps> = ({
       text
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    // Auto-scroll on user send
+    isNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    appendMessage(userMsg);
     setInputMessage('');
     setIsLoading(true);
 
@@ -110,7 +180,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
           recommendedWorkout: plan,
           suggestedActions: ['Start this workout now', 'Adjust duration to 45 mins', 'Which muscles are neglected?']
         };
-        setMessages(prev => [...prev, aiMsg]);
+        appendMessage(aiMsg);
       } else {
         const response = await api.askAICoach(text, messages);
         const aiMsg: AIMessage = {
@@ -123,7 +193,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
             'Generate a workout for me'
           ]
         };
-        setMessages(prev => [...prev, aiMsg]);
+        appendMessage(aiMsg);
       }
     } catch (err: any) {
       const errorMsg: AIMessage = {
@@ -132,7 +202,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
         timestamp: new Date().toISOString(),
         text: `Here is your current grounded assessment:\n\n• **Suggested Focus**: ${radar.suggestedFocusToday.title}\n• **High Exposure Group**: ${radar.highExposureMuscles.map(m => m.name).join(', ') || 'None'}\n• **Recovered Ready Group**: ${radar.recoveredMuscles.map(m => m.name).join(', ') || 'All Balanced'}`
       };
-      setMessages(prev => [...prev, errorMsg]);
+      appendMessage(errorMsg);
     } finally {
       setIsLoading(false);
     }
@@ -155,7 +225,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
         text: `Generated **${plan.name}** (~${plan.durationMinutes} min).\n\n${plan.rationale}`,
         recommendedWorkout: plan
       };
-      setMessages(prev => [...prev, aiMsg]);
+      appendMessage(aiMsg);
     } catch (err) {
       console.error(err);
     } finally {
@@ -207,11 +277,37 @@ export const AITrainer: React.FC<AITrainerProps> = ({
       {/* Main Grid: Left Chat Arena & Right Live State Context Widget */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Chat & Workout Previews */}
-        <div className={`lg:col-span-2 flex-col h-[540px] sm:h-[640px] lg:h-[720px] bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden ${
+        <div className={`lg:col-span-2 relative flex-col h-[540px] sm:h-[640px] lg:h-[720px] bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden ${
           mobileSubTab === 'tools' ? 'hidden lg:flex' : 'flex'
         }`}>
+          {/* Chat Session Status Bar & Reset Action */}
+          <div className="px-4 sm:px-6 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/70 backdrop-blur-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Grounded Intelligence Session
+              </span>
+              <span className="hidden sm:inline text-[10px] text-slate-400 dark:text-slate-500">
+                • Persisted
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleClearChat}
+              className="text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Reset to fresh conversation"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>New Chat</span>
+            </button>
+          </div>
+
           {/* Chat Messages Log */}
-          <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
+          <div
+            ref={messagesContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4 scroll-smooth"
+          >
             {messages.map(msg => {
               const isAssistant = msg.sender === 'assistant';
               return (
@@ -333,7 +429,25 @@ export const AITrainer: React.FC<AITrainerProps> = ({
                 <span>AI Coach is analyzing recovery models & calculating workouts...</span>
               </div>
             )}
+            <div ref={messagesEndRef} className="h-px w-full" />
           </div>
+
+          {/* Floating Jump to Latest Button (Shows when user scrolls up) */}
+          {showScrollBottomBtn && (
+            <button
+              type="button"
+              onClick={() => {
+                isNearBottomRef.current = true;
+                setShowScrollBottomBtn(false);
+                scrollToBottom('smooth');
+              }}
+              className="absolute bottom-20 right-6 sm:right-8 z-20 px-3.5 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 flex items-center gap-1.5 transition-all duration-200 cursor-pointer animate-in fade-in slide-in-from-bottom-2 active:scale-95"
+              title="Scroll down to latest messages"
+            >
+              <ChevronDown className="w-4 h-4" />
+              <span>Latest messages</span>
+            </button>
+          )}
 
           {/* Chat Input Bar */}
           <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">

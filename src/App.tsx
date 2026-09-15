@@ -10,10 +10,17 @@ import {
   MuscleId
 } from './types';
 import { api } from './lib/api';
-import { storageVault } from './lib/storageVault';
+import { storageVault, isGenuineWorkout } from './lib/storageVault';
 import { calculateMuscleExposures, buildTrainingRadar, generateRecommendedWorkoutSession } from './lib/muscleMath';
 import { EXERCISES_MAP } from './lib/exerciseDatabase';
 import { WORKOUT_TEMPLATES } from './lib/seedData';
+import {
+  auth,
+  subscribeToFirebaseAuth,
+  getWorkoutsFromFirestore,
+  getTemplatesFromFirestore,
+  getUserProfileFromFirestore
+} from './lib/firebase';
 
 // Components
 import { Dashboard } from './components/dashboard/Dashboard';
@@ -26,6 +33,7 @@ import { ProfileModal } from './components/profile/ProfileModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { WelcomeAuthView } from './components/auth/WelcomeAuthView';
 import { AuthUser } from './types';
+import { formatAthleteName } from './lib/nameUtils';
 
 // Icons
 import {
@@ -76,8 +84,11 @@ export function App() {
 
   // Load initial backend state with instant local vault restore
   const loadData = async () => {
-    // Phase 1: Instant Local Restore (0ms latency, eliminates loading blank states)
+    // Phase 1: Instant Local Restore with Sanitization
     try {
+      // Clean out any corrupted or template entries before loading
+      await storageVault.purgeInvalidWorkouts();
+
       const [cachedUser, cachedProf, cachedW, cachedT, cachedPrs] = await Promise.all([
         storageVault.getUser(),
         storageVault.getProfile(),
@@ -87,22 +98,29 @@ export function App() {
       ]);
 
       if (cachedUser) {
-        setCurrentUser(cachedUser);
+        const cleanName = formatAthleteName(cachedUser.username, cachedUser.email);
+        const resolvedUser = { ...cachedUser, username: cleanName };
+        setCurrentUser(resolvedUser);
       } else if (cachedW && cachedW.length > 0) {
         const savedUid = localStorage.getItem('training_intel_user_id') || 'usr_athlete_local';
         const savedEmail = localStorage.getItem('training_intel_user_email') || 'athlete@trainingintel.app';
+        const savedName = localStorage.getItem('training_intel_user_name');
+        const cleanName = formatAthleteName(savedName, savedEmail);
         const autoUser: AuthUser = {
           id: savedUid,
           email: savedEmail,
-          username: savedEmail.includes('@') ? savedEmail.split('@')[0] : 'Athlete',
+          username: cleanName,
           createdAt: new Date().toISOString()
         };
         setCurrentUser(autoUser);
         storageVault.saveUser(autoUser).catch(() => {});
       }
 
-      if (cachedProf) setProfile(cachedProf);
-      if (Array.isArray(cachedW) && cachedW.length > 0) {
+      if (cachedProf) {
+        const cleanProfName = formatAthleteName(cachedProf.name, cachedProf.id);
+        setProfile({ ...cachedProf, name: cleanProfName });
+      }
+      if (Array.isArray(cachedW)) {
         setWorkouts(cachedW);
         setMusclesData(calculateMuscleExposures(cachedW, EXERCISES_MAP));
         setRadar(buildTrainingRadar(cachedW, EXERCISES_MAP));
@@ -118,8 +136,13 @@ export function App() {
       const authData = await api.getMe();
 
       if (authData && authData.user) {
-        setCurrentUser(authData.user);
-        if (authData.profile) setProfile(authData.profile);
+        const cleanName = formatAthleteName(authData.user.username, authData.user.email);
+        const resolvedUser = { ...authData.user, username: cleanName };
+        setCurrentUser(resolvedUser);
+        if (authData.profile) {
+          const cleanProfName = formatAthleteName(authData.profile.name, authData.user.email);
+          setProfile({ ...authData.profile, name: cleanProfName });
+        }
       }
 
       const [p, w, t, pr, m, r] = await Promise.all([
@@ -132,7 +155,7 @@ export function App() {
       ]);
 
       if (p) setProfile(p);
-      if (Array.isArray(w) && w.length > 0) {
+      if (Array.isArray(w)) {
         setWorkouts(w);
       }
       if (t && t.length > 0) setTemplates(t);
@@ -148,6 +171,61 @@ export function App() {
 
   useEffect(() => {
     loadData();
+
+    // Continuous Firebase Auth sync to preserve user data across app reloads and republishes
+    const unsubscribe = subscribeToFirebaseAuth(async (fbUser) => {
+      if (fbUser) {
+        const uid = fbUser.uid;
+        const email = fbUser.email || '';
+        const username = formatAthleteName(fbUser.displayName, email);
+
+        api.setSession(uid, uid, email);
+
+        const authUser: AuthUser = {
+          id: uid,
+          email,
+          username,
+          createdAt: new Date().toISOString()
+        };
+
+        setCurrentUser(authUser);
+        storageVault.saveUser(authUser).catch(() => {});
+
+        // Fetch fresh Firestore data and sync
+        try {
+          const [cloudWorkouts, cloudTemplates, cloudProfile] = await Promise.all([
+            getWorkoutsFromFirestore(uid),
+            getTemplatesFromFirestore(uid),
+            getUserProfileFromFirestore(uid)
+          ]);
+
+          if (cloudProfile) {
+            const cleanProfName = formatAthleteName(cloudProfile.name, email);
+            const resolvedProf = { ...cloudProfile, name: cleanProfName };
+            setProfile(resolvedProf);
+            storageVault.saveProfile(resolvedProf).catch(() => {});
+          }
+
+          if (Array.isArray(cloudWorkouts) && cloudWorkouts.length > 0) {
+            await storageVault.saveWorkouts(cloudWorkouts);
+            const currentVaultWorkouts = await storageVault.getWorkouts();
+            setWorkouts(currentVaultWorkouts);
+            setMusclesData(calculateMuscleExposures(currentVaultWorkouts, EXERCISES_MAP));
+            setRadar(buildTrainingRadar(currentVaultWorkouts, EXERCISES_MAP));
+            api.syncWorkouts(currentVaultWorkouts).catch(() => {});
+          }
+
+          if (Array.isArray(cloudTemplates) && cloudTemplates.length > 0) {
+            setTemplates(cloudTemplates);
+            storageVault.saveTemplates(cloudTemplates).catch(() => {});
+          }
+        } catch (syncErr) {
+          console.warn('[Firebase] Background sync notice:', syncErr);
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // Dark mode HTML class toggle
@@ -227,15 +305,31 @@ export function App() {
     setActiveWorkoutData({
       name: `${workout.name} (Repeat)`,
       startedAt: new Date().toISOString(),
-      exercises: workout.exercises.map(e => ({
-        ...e,
-        id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        sets: e.sets.map(s => ({
-          ...s,
-          id: `s_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          completed: false
-        }))
-      }))
+      exercises: (workout.exercises || []).map((e: any) => {
+        const rawSets: any[] = Array.isArray(e.sets)
+          ? e.sets
+          : (typeof e.sets === 'number'
+            ? Array.from({ length: e.sets }).map((_, sIdx) => ({
+                id: `s_${Date.now()}_${sIdx}`,
+                setNumber: sIdx + 1,
+                type: 'normal',
+                weightKg: e.suggestedWeightKg || e.weightKg || 40,
+                reps: e.repMin || e.reps || 10,
+                completed: false
+              }))
+            : (e.sets && typeof e.sets === 'object'
+              ? Object.values(e.sets)
+              : []));
+        return {
+          ...e,
+          id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          sets: rawSets.map((s: any, sIdx: number) => ({
+            ...s,
+            id: `s_${Date.now()}_${sIdx}_${Math.random().toString(36).substr(2, 4)}`,
+            completed: false
+          }))
+        };
+      })
     });
     setActiveTab('workout');
   };
@@ -252,11 +346,15 @@ export function App() {
       const res = await api.saveWorkout(finishedWorkout);
       const saved = res.workout || finishedWorkout;
       
-      // Resilient safe list: combine immediateList and any returned workouts so count never shrinks
+      const delIds = new Set(storageVault.getDeletedWorkoutIds());
       const map = new Map<string, Workout>();
-      for (const w of immediateList) if (w && w.id) map.set(w.id, w);
+      for (const w of immediateList) {
+        if (w && w.id && !delIds.has(w.id) && isGenuineWorkout(w)) map.set(w.id, w);
+      }
       if (res.workouts && Array.isArray(res.workouts)) {
-        for (const w of res.workouts) if (w && w.id) map.set(w.id, w);
+        for (const w of res.workouts) {
+          if (w && w.id && !delIds.has(w.id) && isGenuineWorkout(w)) map.set(w.id, w);
+        }
       }
       map.set(saved.id, saved);
       const updatedList = Array.from(map.values());
@@ -355,21 +453,27 @@ export function App() {
   };
 
   const handleDeleteWorkout = async (id: string) => {
+    // 1. Instant optimistic state update
+    const remaining = workouts.filter(w => w.id !== id);
+    setWorkouts(remaining);
+    setMusclesData(calculateMuscleExposures(remaining, EXERCISES_MAP));
+    setRadar(buildTrainingRadar(remaining, EXERCISES_MAP));
+
     try {
       const res = await api.deleteWorkout(id);
-      const remaining = res.workouts || workouts.filter(w => w.id !== id);
-      setWorkouts(remaining);
+      const serverRemaining = res.workouts ? res.workouts.filter(w => w.id !== id) : remaining;
+      setWorkouts(serverRemaining);
 
       if (res.muscles) {
         setMusclesData(res.muscles);
       } else {
-        setMusclesData(calculateMuscleExposures(remaining, EXERCISES_MAP));
+        setMusclesData(calculateMuscleExposures(serverRemaining, EXERCISES_MAP));
       }
 
       if (res.radar) {
         setRadar(res.radar);
       } else {
-        setRadar(buildTrainingRadar(remaining, EXERCISES_MAP));
+        setRadar(buildTrainingRadar(serverRemaining, EXERCISES_MAP));
       }
 
       if (res.personalRecords) {
@@ -380,11 +484,38 @@ export function App() {
       }
     } catch (err) {
       console.error('Error deleting workout:', err);
-      // Fallback local recompute
-      const remaining = workouts.filter(w => w.id !== id);
-      setWorkouts(remaining);
-      setMusclesData(calculateMuscleExposures(remaining, EXERCISES_MAP));
-      setRadar(buildTrainingRadar(remaining, EXERCISES_MAP));
+    }
+  };
+
+  const handleClearAllWorkouts = async () => {
+    setIsLoading(true);
+    setWorkouts([]);
+    setMusclesData(calculateMuscleExposures([], EXERCISES_MAP));
+    setRadar(buildTrainingRadar([], EXERCISES_MAP));
+    setPersonalRecords([]);
+
+    try {
+      await api.clearAllWorkouts();
+    } catch (err) {
+      console.error('Error clearing all workouts:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePurgeInvalidWorkouts = async () => {
+    setIsLoading(true);
+    try {
+      const res = await api.purgeInvalidWorkouts();
+      if (res.workouts) {
+        setWorkouts(res.workouts);
+        setMusclesData(res.muscles || calculateMuscleExposures(res.workouts, EXERCISES_MAP));
+        setRadar(res.radar || buildTrainingRadar(res.workouts, EXERCISES_MAP));
+      }
+    } catch (err) {
+      console.error('Error purging invalid workouts:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -410,6 +541,11 @@ export function App() {
     try {
       const p = await api.updateProfile(updated);
       setProfile(p);
+      if (updated.name && currentUser) {
+        const updatedUser = { ...currentUser, username: updated.name };
+        setCurrentUser(updatedUser);
+        storageVault.saveUser(updatedUser).catch(() => {});
+      }
     } catch (err) {
       console.error(err);
     }
@@ -428,8 +564,14 @@ export function App() {
   };
 
   const handleAuthSuccess = async (user: AuthUser, userProf: UserProfile) => {
-    setCurrentUser(user);
-    setProfile(userProf);
+    const cleanUserName = formatAthleteName(user.username, user.email);
+    const cleanProfName = formatAthleteName(userProf.name, user.email);
+    const resolvedUser = { ...user, username: cleanUserName };
+    const resolvedProf = { ...userProf, name: cleanProfName };
+    setCurrentUser(resolvedUser);
+    setProfile(resolvedProf);
+    storageVault.saveUser(resolvedUser).catch(() => {});
+    storageVault.saveProfile(resolvedProf).catch(() => {});
     setIsLoading(true);
     await loadData();
   };
@@ -585,10 +727,10 @@ export function App() {
               title="Athlete Account & Profile Switching"
             >
               <div className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                {currentUser?.username?.charAt(0) || profile?.name?.charAt(0) || 'A'}
+                {formatAthleteName(currentUser?.username || profile?.name, currentUser?.email).charAt(0).toUpperCase()}
               </div>
               <span className="hidden sm:inline max-w-[80px] sm:max-w-[120px] truncate">
-                {currentUser?.username || profile?.name || 'Athlete'}
+                {formatAthleteName(currentUser?.username || profile?.name, currentUser?.email)}
               </span>
               <Users className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden sm:block" />
             </button>
@@ -705,7 +847,7 @@ export function App() {
                 onUpdateWorkout={handleUpdateWorkout}
                 onDeleteWorkout={handleDeleteWorkout}
                 onStartNewWorkout={handleStartBlankWorkout}
-                onRestoreHistory={handleRestoreHistory}
+                onClearAllWorkouts={handleClearAllWorkouts}
               />
             )}
 
