@@ -234,23 +234,43 @@ export async function getWorkoutsFromFirestore(userId: string, deletedIds?: Set<
       const data = docSnap.data();
       const docId = data.id || docSnap.id;
 
-      // 1. Tombstone check: If deleted, remove from Firestore immediately so it never resurrects
+      // 1. Tombstone check: If explicitly deleted by user, remove from Firestore
       if (deletedIds && (deletedIds.has(docId) || deletedIds.has(docSnap.id))) {
         deleteDoc(doc(db, 'users', userId, 'workouts', docSnap.id)).catch(() => {});
         continue;
       }
 
-      // 2. Reject objects with no timestamp (NEVER fabricate a current timestamp!)
-      if (!data.startedAt && !data.completedAt) {
-        deleteDoc(doc(db, 'users', userId, 'workouts', docSnap.id)).catch(() => {});
+      // Helper to safely extract ISO date string from strings, Timestamps, or dates
+      const normalizeDate = (val: any): string | undefined => {
+        if (!val) return undefined;
+        if (typeof val === 'string' && val.trim()) return val;
+        if (typeof val.toDate === 'function') {
+          try { return val.toDate().toISOString(); } catch {}
+        }
+        if (typeof val.seconds === 'number') {
+          return new Date(val.seconds * 1000).toISOString();
+        }
+        if (typeof val._seconds === 'number') {
+          return new Date(val._seconds * 1000).toISOString();
+        }
+        if (val instanceof Date && !isNaN(val.getTime())) {
+          return val.toISOString();
+        }
+        return undefined;
+      };
+
+      const startedAt = normalizeDate(data.startedAt);
+      const completedAt = normalizeDate(data.completedAt);
+
+      if (!startedAt && !completedAt) {
         continue;
       }
 
       const candidate: Workout = {
         id: docId,
         name: data.name || 'Workout',
-        startedAt: data.startedAt,
-        completedAt: data.completedAt,
+        startedAt,
+        completedAt,
         durationSeconds: data.durationSeconds || 0,
         totalVolumeKg: data.totalVolumeKg || 0,
         totalSets: data.totalSets || 0,
@@ -259,9 +279,8 @@ export async function getWorkoutsFromFirestore(userId: string, deletedIds?: Set<
         musclesTrained: data.musclesTrained || []
       };
 
-      // 3. Reject exercises or templates masquerading as workouts
+      // 3. Skip invalid items without deleting them
       if (!isGenuineWorkout(candidate)) {
-        deleteDoc(doc(db, 'users', userId, 'workouts', docSnap.id)).catch(() => {});
         continue;
       }
 

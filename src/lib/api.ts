@@ -497,7 +497,7 @@ export const api = {
       if (res.ok) {
         const data = await res.json();
         if (data.workouts) {
-          await storageVault.saveWorkouts(data.workouts, true);
+          await storageVault.saveWorkouts(data.workouts, false);
         }
         if (data.personalRecords) {
           await storageVault.saveRecords(data.personalRecords);

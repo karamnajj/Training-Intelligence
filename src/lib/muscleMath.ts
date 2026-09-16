@@ -302,7 +302,48 @@ export function calculateMuscleExposures(
     const recencyWeight = getRecencyWeight(daysAgo);
 
     for (const exEntry of workout.exercises || []) {
-      const exerciseDef = exercisesMap[exEntry.exerciseId];
+      let exerciseDef = exercisesMap[exEntry.exerciseId];
+      if (!exerciseDef) {
+        const targetId = (exEntry.exerciseId || '').toLowerCase().trim();
+        const targetName = (exEntry.exerciseName || '').toLowerCase().trim();
+        const aliases: Record<string, string> = {
+          barbell_squat: 'barbell_back_squat',
+          squat: 'barbell_back_squat',
+          back_squat: 'barbell_back_squat',
+          front_squat: 'barbell_front_squat',
+          bench_press: 'barbell_bench_press',
+          flat_bench: 'barbell_bench_press',
+          deadlift: 'barbell_deadlift',
+          rdl: 'romanian_deadlift',
+          pull_up: 'pullup',
+          pull_ups: 'pullup',
+          chin_up: 'chinup',
+          lat_pull_down: 'lat_pulldown',
+          calf_raise: 'standing_calf_raise',
+          leg_press: 'leg_press_machine',
+          tricep_curl: 'tricep_curl_dips_machine',
+          tricep_dips: 'tricep_curl_dips_machine',
+          dips_machine: 'tricep_curl_dips_machine',
+          seated_dip_machine: 'tricep_curl_dips_machine',
+          chest_supported_row: 'chest_supported_seated_back_row',
+          chest_supported_seated_row: 'chest_supported_seated_back_row',
+          chest_supported_seated_back_row: 'chest_supported_seated_back_row',
+          seated_back_row: 'chest_supported_seated_back_row',
+          back_supported_tricep_pushdown: 'back_supported_cable_tricep_pushdown',
+          back_supported_pushdown: 'back_supported_cable_tricep_pushdown'
+        };
+        const aliasKey = aliases[targetId] || aliases[targetName];
+        if (aliasKey && exercisesMap[aliasKey]) {
+          exerciseDef = exercisesMap[aliasKey];
+        } else {
+          exerciseDef = Object.values(exercisesMap).find(e => 
+            e.id.toLowerCase() === targetId ||
+            e.name.toLowerCase() === targetName ||
+            (targetName && e.name.toLowerCase().includes(targetName)) ||
+            (targetId && e.id.toLowerCase().includes(targetId))
+          );
+        }
+      }
       if (!exerciseDef) continue;
 
       const rawSets = Array.isArray(exEntry?.sets)
@@ -315,7 +356,14 @@ export function calculateMuscleExposures(
       const workingSets = (rawSets as any[]).filter(s => s && s.completed && s.type !== 'warmup').length;
       if (workingSets === 0) continue;
 
-      for (const contrib of exerciseDef.muscles) {
+      // Expand contributions if chest_mid/chest_upper to also cover pectoralis_major
+      const contributions = [...exerciseDef.muscles];
+      const hasChest = exerciseDef.muscles.some(m => m.muscleId === 'chest_mid' || m.muscleId === 'chest_upper');
+      if (hasChest && !exerciseDef.muscles.some(m => m.muscleId === 'pectoralis_major')) {
+        contributions.push({ muscleId: 'pectoralis_major', role: 'PRIMARY', contributionFactor: 0.9 });
+      }
+
+      for (const contrib of contributions) {
         const muscleId = contrib.muscleId;
         const target = result[muscleId];
         if (!target) continue;
@@ -459,138 +507,181 @@ export function buildTrainingRadar(
   const pushPullRatio = pullSets === 0 ? (pushSets > 0 ? 2 : 1) : Math.round((pushSets / pullSets) * 100) / 100;
   const upperLowerRatio = legSets === 0 ? (upperSets > 0 ? 2 : 1) : Math.round((upperSets / legSets) * 100) / 100;
 
+  // --- CLASSIFY MUSCLE RECOVERY & UNTRAINED STATES ---
+  // A muscle is "red" on the body diagram if its freshness status is 'high_recent_exposure' OR daysSinceTraining < 1.5
+  const isRedFatigued = (mId: MuscleId): boolean => {
+    const exp = exposures[mId];
+    if (!exp) return false;
+    return exp.freshnessStatus === 'high_recent_exposure' || (exp.daysSinceTraining !== null && exp.daysSinceTraining < 1.5);
+  };
+
+  // A muscle is "untrained" if it has never been trained in the logbook (0 sets, daysSinceTraining === null)
+  const isUntrained = (mId: MuscleId): boolean => {
+    const exp = exposures[mId];
+    if (!exp) return true;
+    return exp.freshnessStatus === 'untrained' || exp.daysSinceTraining === null || exp.effectiveSets30d === 0;
+  };
+
+  const allUntrainedMuscles = ALL_MUSCLE_IDS.filter(id => isUntrained(id));
+
+  // Define anatomical groupings
+  const legMuscles: MuscleId[] = ['quadriceps', 'hamstrings', 'gluteus', 'calves', 'adductors'];
+  const pullMuscles: MuscleId[] = ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps', 'spinal_erectors'];
+  const pushMuscles: MuscleId[] = ['chest_mid', 'chest_upper', 'chest_lower', 'pectoralis_major', 'anterior_deltoid', 'lateral_deltoid', 'triceps'];
+  const coreMuscles: MuscleId[] = ['rectus_abdominis', 'obliques'];
+
+  // Check untrained status by anatomical region (filtering out any fatigued muscles)
+  const untrainedLegs = legMuscles.filter(m => isUntrained(m) && !isRedFatigued(m));
+  const untrainedPull = pullMuscles.filter(m => isUntrained(m) && !isRedFatigued(m));
+  const untrainedPush = pushMuscles.filter(m => isUntrained(m) && !isRedFatigued(m));
+  const untrainedCore = coreMuscles.filter(m => isUntrained(m) && !isRedFatigued(m));
+
   // Determine Today's Prime Target based on sports-science recovery and split balance
   let suggestedFocusMuscles: MuscleId[] = [];
   let suggestedTitle = 'Full Body Hypertrophy';
   let suggestedRationale = 'Balanced stimulus across prime movement patterns.';
   let estDuration = 50;
 
-  // Define the 3 major functional movement pillars with primary driver muscles
-  const lowerBodyPillar = {
-    id: 'legs',
-    name: 'Lower Body',
-    primaryDrivers: ['quadriceps', 'hamstrings', 'gluteus'] as MuscleId[],
-    allMuscles: ['quadriceps', 'hamstrings', 'gluteus', 'calves'] as MuscleId[],
-    title: 'Lower Body Quad & Posterior Hypertrophy',
-    duration: 55,
-    neverTrainedRationale:
-      'You have never logged a lower body session in your training history. Activating Quadriceps, Hamstrings, and Glutes today is your highest priority to establish balanced systemic power and prevent muscular imbalances.'
-  };
+  if (allUntrainedMuscles.length > 0) {
+    // RULE 1: UNTRAINED MUSCLES HAVE ABSOLUTE TOP PRIORITY
+    // Prioritize major movement anchors that have 0 history
+    const hasUntrainedMajorLegs = untrainedLegs.some(m => ['quadriceps', 'gluteus', 'hamstrings'].includes(m));
+    const hasUntrainedMajorPull = untrainedPull.some(m => ['latissimus_dorsi', 'biceps'].includes(m));
+    const hasUntrainedMajorPush = untrainedPush.some(m => ['chest_mid', 'chest_upper', 'triceps'].includes(m));
 
-  const pullPillar = {
-    id: 'pull',
-    name: 'Upper Body Pull',
-    primaryDrivers: ['latissimus_dorsi', 'biceps'] as MuscleId[],
-    allMuscles: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'] as MuscleId[],
-    title: 'Posterior Chain Pull & Rear Delts',
-    duration: 50,
-    neverTrainedRationale:
-      'You have never logged an upper body pull or back workout. Targeting your Latissimus Dorsi, Upper Back, and Biceps today is essential for developing structural pulling strength and posture.'
-  };
+    if (hasUntrainedMajorLegs) {
+      // Focus on untrained lower body + any untrained core / calves
+      const targetList = Array.from(new Set([...untrainedLegs, ...untrainedCore]));
+      suggestedFocusMuscles = targetList.filter(m => !isRedFatigued(m));
+      suggestedTitle = 'Prime Target: Untrained Lower Body & Core';
+      suggestedRationale = `You have not yet trained your lower body (${untrainedLegs.map(m => MUSCLE_CATALOG[m]?.name || m).slice(0, 3).join(', ')}). Activating these groups today establishes foundational systemic power and prevents muscular imbalances.`;
+      estDuration = 55;
+    } else if (hasUntrainedMajorPull) {
+      // Focus on untrained upper back / pull + any untrained core
+      const targetList = Array.from(new Set([...untrainedPull, ...untrainedCore]));
+      suggestedFocusMuscles = targetList.filter(m => !isRedFatigued(m));
+      suggestedTitle = 'Prime Target: Untrained Posterior Chain & Pull';
+      suggestedRationale = `You have no logged history for upper body pulling. Targeting your Latissimus Dorsi, Upper Back, and Biceps today is essential for developing structural pulling strength and posture.`;
+      estDuration = 50;
+    } else if (hasUntrainedMajorPush) {
+      // Focus on untrained push + any untrained core
+      const targetList = Array.from(new Set([...untrainedPush, ...untrainedCore]));
+      suggestedFocusMuscles = targetList.filter(m => !isRedFatigued(m));
+      suggestedTitle = 'Prime Target: Untrained Upper Body Push';
+      suggestedRationale = `You have no logged history for upper body pressing. Stimulating your Pectorals, Deltoids, and Triceps today will build foundational pushing strength and upper body pressing mass.`;
+      estDuration = 50;
+    } else {
+      // Major compound pillars have been touched, but specific muscles (e.g. calves, core, forearms, rear delts, adductors) have NEVER been trained!
+      const allCleanUntrained = allUntrainedMuscles.filter(m => !isRedFatigued(m));
 
-  const pushPillar = {
-    id: 'push',
-    name: 'Upper Body Push',
-    primaryDrivers: ['chest_mid', 'chest_upper', 'triceps'] as MuscleId[],
-    allMuscles: ['chest_mid', 'chest_upper', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] as MuscleId[],
-    title: 'Upper Body Push & Shoulder Width',
-    duration: 50,
-    neverTrainedRationale:
-      'You have never logged an upper body push workout. Stimulating your Pectorals, Deltoids, and Triceps today will build foundational pushing strength and upper body pressing mass.'
-  };
+      // Pair with the single cleanest, longest-rested compound muscle group
+      const pillarOptions = [
+        { name: 'Lower Body', muscles: legMuscles },
+        { name: 'Upper Body Pull', muscles: pullMuscles },
+        { name: 'Upper Body Push', muscles: pushMuscles }
+      ];
 
-  const pillars = [lowerBodyPillar, pullPillar, pushPillar];
+      const scoredPillars = pillarOptions.map(p => {
+        const cleanMuscles = p.muscles.filter(m => !isRedFatigued(m));
+        const daysList = cleanMuscles.map(m => exposures[m]?.daysSinceTraining ?? 99);
+        const minDays = daysList.length > 0 ? Math.min(...daysList) : 0;
+        const avgDays = daysList.length > 0 ? daysList.reduce((a, b) => a + b, 0) / daysList.length : 0;
+        const hasRed = p.muscles.some(m => isRedFatigued(m));
+        return { ...p, cleanMuscles, minDays, avgDays, hasRed };
+      });
 
-  // Evaluate each pillar with strict sports-science criteria
-  const pillarEvaluations = pillars.map(p => {
-    let totalPrimarySets30d = 0;
-    let minDaysSincePrimaryTraining: number | null = null;
-    let hasAnyPrimaryExposure = false;
-    let isRecentlyTrained = false; // trained within 48h or high fatigue
+      const availablePillars = scoredPillars.filter(p => !p.hasRed && p.cleanMuscles.length > 0);
+      availablePillars.sort((a, b) => b.minDays - a.minDays);
 
-    for (const mId of p.primaryDrivers) {
-      const exp = exposures[mId];
-      if (!exp) continue;
-      totalPrimarySets30d += exp.effectiveSets30d;
+      const companionPillar = availablePillars[0] || scoredPillars.sort((a, b) => b.avgDays - a.avgDays)[0];
+      const companionMuscles = (companionPillar ? companionPillar.cleanMuscles : []).filter(m => !isRedFatigued(m));
 
-      if (exp.lastTrainedAt !== null && exp.effectiveSets30d > 0) {
-        hasAnyPrimaryExposure = true;
-        const days = exp.daysSinceTraining !== null ? exp.daysSinceTraining : 0;
-        if (minDaysSincePrimaryTraining === null || days < minDaysSincePrimaryTraining) {
-          minDaysSincePrimaryTraining = days;
-        }
-      }
+      const combined = Array.from(new Set([...allCleanUntrained, ...companionMuscles]));
+      suggestedFocusMuscles = combined.filter(m => !isRedFatigued(m));
 
-      if (exp.freshnessStatus === 'high_recent_exposure' || exp.freshnessStatus === 'recently_trained') {
-        isRecentlyTrained = true;
-      }
-      if (exp.daysSinceTraining !== null && exp.daysSinceTraining < 2) {
-        isRecentlyTrained = true;
-      }
+      const untrainedNames = allCleanUntrained.map(m => MUSCLE_CATALOG[m]?.name || m).slice(0, 3).join(', ');
+      suggestedTitle = `Prime Target: Untrained ${allCleanUntrained.length === 1 ? MUSCLE_CATALOG[allCleanUntrained[0]]?.name || 'Muscles' : 'Gaps'} & ${companionPillar?.name || 'Recovery'}`;
+      suggestedRationale = `The highlighted muscles (${untrainedNames}) have 0 recorded sets in your training history. Today's session prioritizes them alongside your fully rested ${companionPillar?.name || 'movement patterns'} to eliminate structural weak points.`;
+      estDuration = 45;
     }
+  } else {
+    // RULE 2: ALL MUSCLES HAVE BEEN TRAINED AT LEAST ONCE - ROTATE TO LONGEST RESTED
+    const pillars = [
+      {
+        id: 'legs',
+        name: 'Lower Body',
+        allMuscles: ['quadriceps', 'hamstrings', 'gluteus', 'calves', 'adductors'] as MuscleId[],
+        title: 'Lower Body Quad & Posterior Hypertrophy',
+        duration: 55
+      },
+      {
+        id: 'pull',
+        name: 'Upper Body Pull',
+        allMuscles: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps', 'spinal_erectors'] as MuscleId[],
+        title: 'Posterior Chain Pull & Rear Delts',
+        duration: 50
+      },
+      {
+        id: 'push',
+        name: 'Upper Body Push',
+        allMuscles: ['chest_mid', 'chest_upper', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] as MuscleId[],
+        title: 'Upper Body Push & Shoulder Width',
+        duration: 50
+      }
+    ];
 
-    // A pillar is NEVER TRAINED if its primary anchor muscles have 0 sets in the logbook
-    const isNeverTrained = !hasAnyPrimaryExposure || totalPrimarySets30d === 0 || minDaysSincePrimaryTraining === null;
+    const pillarEvaluations = pillars.map(p => {
+      let minDays: number = 999;
+      let hasRed = false;
 
-    return {
-      pillar: p,
-      isNeverTrained,
-      totalPrimarySets30d,
-      minDaysSincePrimaryTraining,
-      effectiveDaysSince: minDaysSincePrimaryTraining === null ? 99999 : minDaysSincePrimaryTraining,
-      isRecentlyTrained
-    };
-  });
+      for (const mId of p.allMuscles) {
+        if (isRedFatigued(mId)) {
+          hasRed = true;
+        }
+        const exp = exposures[mId];
+        const days = exp?.daysSinceTraining ?? 999;
+        if (days < minDays) minDays = days;
+      }
 
-  // RULE 1: NEVER-TRAINED PILLARS HAVE ABSOLUTE TOP PRIORITY
-  // Under NO circumstance should a muscle trained a few days ago be suggested if an untrained pillar exists!
-  const neverTrainedList = pillarEvaluations.filter(e => e.isNeverTrained);
-  const trainedList = pillarEvaluations.filter(e => !e.isNeverTrained);
+      return {
+        pillar: p,
+        hasRed,
+        minDays,
+        cleanMuscles: p.allMuscles.filter(m => !isRedFatigued(m))
+      };
+    });
 
-  if (neverTrainedList.length > 0) {
-    // Pick the untrained pillar (Order of priority: Legs -> Pull -> Push)
-    const selected = neverTrainedList[0].pillar;
-    suggestedFocusMuscles = selected.allMuscles;
-    suggestedTitle = selected.title;
-    suggestedRationale = selected.neverTrainedRationale;
-    estDuration = selected.duration;
-  } else if (trainedList.length > 0) {
-    // RULE 2: ROTATE TO THE LONGEST-RESTED PILLAR
-    // Exclude any pillar trained within the last 48 hours or marked fatigued
-    const fullyRecovered = trainedList.filter(
-      e => !e.isRecentlyTrained && e.minDaysSincePrimaryTraining !== null && e.minDaysSincePrimaryTraining >= 2
-    );
+    // Exclude any pillar that has red/fatigued muscles or was trained in the last 48 hours
+    const fullyRecovered = pillarEvaluations.filter(e => !e.hasRed && e.minDays >= 2 && e.cleanMuscles.length > 0);
 
     if (fullyRecovered.length > 0) {
-      // Pick the pillar with the LONGEST rest (highest days since last trained)
-      fullyRecovered.sort((a, b) => b.effectiveDaysSince - a.effectiveDaysSince);
+      fullyRecovered.sort((a, b) => b.minDays - a.minDays);
       const selected = fullyRecovered[0];
-      const days = selected.minDaysSincePrimaryTraining!;
-      const daysText = days === 0 ? 'earlier today' : days === 1 ? 'yesterday' : `${days} days ago`;
+      const daysText = selected.minDays >= 999 ? 'never' : selected.minDays === 0 ? 'earlier today' : selected.minDays === 1 ? 'yesterday' : `${selected.minDays} days ago`;
 
-      suggestedFocusMuscles = selected.pillar.allMuscles;
+      suggestedFocusMuscles = selected.cleanMuscles;
       suggestedTitle = selected.pillar.title;
       suggestedRationale = `${selected.pillar.name} was last trained ${daysText} and is fully recovered. Prime opportunity for progressive overload while your recently trained muscle groups supercompensate.`;
       estDuration = selected.pillar.duration;
     } else {
-      // All pillars were recently stimulated (e.g. 2-day or 3-day consecutive split)
-      trainedList.sort((a, b) => b.effectiveDaysSince - a.effectiveDaysSince);
-      const selected = trainedList[0];
-      const days = selected.minDaysSincePrimaryTraining ?? 0;
-      const daysText = days === 0 ? 'earlier today' : days === 1 ? 'yesterday' : `${days} days ago`;
-
-      suggestedFocusMuscles = selected.pillar.allMuscles;
-      suggestedTitle = `${selected.pillar.name} Active Hypertrophy`;
-      suggestedRationale = `${selected.pillar.name} shows the highest relative recovery across your kinetic chain (last stimulated ${daysText}). Recommended moderate-intensity volume today.`;
-      estDuration = selected.pillar.duration;
+      // All 3 compound pillars have recent training fatigue. Look for non-fatigued secondary muscles (e.g. core, calves, arms)
+      const nonFatiguedMuscles = ALL_MUSCLE_IDS.filter(m => !isRedFatigued(m));
+      if (nonFatiguedMuscles.length > 0) {
+        suggestedFocusMuscles = nonFatiguedMuscles.slice(0, 5);
+        suggestedTitle = 'Active Recovery & Core Stabilization';
+        suggestedRationale = 'Your major compound pressing, pulling, and leg drivers are actively repairing from high recent stimulus. Today focus on core stability, mobility, and active recovery.';
+        estDuration = 35;
+      } else {
+        suggestedFocusMuscles = [];
+        suggestedTitle = 'Systemic Rest & Recovery Day';
+        suggestedRationale = 'High systemic fatigue detected across all kinetic chains. Complete rest is recommended today to facilitate central nervous system recovery and muscle protein synthesis.';
+        estDuration = 0;
+      }
     }
-  } else {
-    // RULE 3: Completely empty logbook
-    suggestedFocusMuscles = ['quadriceps', 'chest_mid', 'latissimus_dorsi', 'hamstrings'];
-    suggestedTitle = 'Foundational Full Body Stimulus';
-    suggestedRationale = 'No logged sessions yet. Start with a balanced compound baseline across quads, chest, and lats.';
-    estDuration = 50;
   }
+
+  // HARD INVARIANT SANITIZATION: ABSOLUTELY ZERO RED MUSCLES ALLOWED IN PRIME TARGET
+  suggestedFocusMuscles = suggestedFocusMuscles.filter(mId => !isRedFatigued(mId));
 
   // --- STREAK & CONSISTENCY CALCULATION WITH REST DAY FREEZE ---
   const today = new Date();
@@ -1035,6 +1126,40 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         coachingNote: 'Pure hip hinge with flat back.'
       }
     ];
+  }
+
+  // If focus includes core muscles and not yet in exercises, append a dedicated core finisher
+  if (radar.suggestedFocusToday.muscles.some(m => m === 'rectus_abdominis' || m === 'obliques')) {
+    if (!exercises.some(e => e.exerciseId === 'hanging_leg_raise' || e.exerciseId === 'cable_woodchop')) {
+      exercises.push({
+        exerciseId: 'hanging_leg_raise',
+        exerciseName: 'Hanging Leg Raise',
+        sets: 3,
+        repMin: 10,
+        repMax: 15,
+        rir: 1,
+        restSeconds: 60,
+        suggestedWeightKg: 0,
+        coachingNote: 'Posterior pelvic tilt at the top; controlled 2-second negative without swinging.'
+      });
+    }
+  }
+
+  // If focus includes calves and not yet in exercises, append calf raises
+  if (radar.suggestedFocusToday.muscles.some(m => m === 'calves')) {
+    if (!exercises.some(e => e.exerciseId === 'standing_calf_raise' || e.exerciseId === 'seated_calf_raise')) {
+      exercises.push({
+        exerciseId: 'standing_calf_raise',
+        exerciseName: 'Standing Calf Raise',
+        sets: 3,
+        repMin: 12,
+        repMax: 15,
+        rir: 1,
+        restSeconds: 60,
+        suggestedWeightKg: 70,
+        coachingNote: '2-second deep eccentric stretch at the bottom of every rep.'
+      });
+    }
   }
 
   return {

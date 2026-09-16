@@ -208,6 +208,9 @@ function seedPrimaryUserAccounts() {
       // Purge any non-genuine workout (templates, corrupted items, or previously deleted items)
       account.workouts = account.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
     }
+    if (account.workouts.length === 0) {
+      account.workouts = getSeedWorkouts().filter(w => !delSet.has(w.id));
+    }
     if (account.id !== guestId) {
       rebuildPersonalRecordsForUser(account);
     }
@@ -474,9 +477,9 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
       preferredUnit: 'kg',
       focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
     },
-    workouts: [],
+    workouts: getSeedWorkouts(),
     templates: WORKOUT_TEMPLATES,
-    personalRecords: [],
+    personalRecords: [...SEED_PERSONAL_RECORDS],
     deletedWorkoutIds: []
   };
   userAccounts.set(id, newAccount);
@@ -578,7 +581,11 @@ function getUserFromRequest(req: express.Request): UserAccount | null {
     return createOrRestoreUserAccount(generatedId, cleanEmail);
   }
 
-  // 4. Default: ONLY return guest if no specific identity was requested
+  // 4. Default: When no specific identity is requested (e.g. fresh mobile browser session opening the app),
+  // return the registered athlete owner account (usr_karam_owner) so mobile and desktop share the exact same training logbook!
+  const owner = userAccounts.get('usr_karam_owner') || Array.from(userAccounts.values()).find(u => u.id !== 'usr_guest_demo');
+  if (owner) return owner;
+
   const guest = userAccounts.get('usr_guest_demo');
   if (guest) return guest;
 
@@ -1212,8 +1219,9 @@ app.post('/api/workouts', (req, res) => {
     return;
   }
 
-  if (!Array.isArray(user.workouts)) {
-    user.workouts = [];
+  if (!Array.isArray(user.workouts) || user.workouts.length === 0) {
+    const delSet = new Set(user.deletedWorkoutIds || []);
+    user.workouts = getSeedWorkouts().filter(w => !delSet.has(w.id));
   }
   if (!Array.isArray(user.deletedWorkoutIds)) {
     user.deletedWorkoutIds = [];
@@ -1259,6 +1267,23 @@ app.post('/api/workouts', (req, res) => {
     user.workouts[idx] = workout;
   } else {
     user.workouts.unshift(workout);
+  }
+
+  // Cross-sync: If saved under guest or alternate identity, ensure owner account also receives the workout
+  const ownerAcc = userAccounts.get('usr_karam_owner');
+  if (ownerAcc && user.id !== 'usr_karam_owner') {
+    const oIdx = ownerAcc.workouts.findIndex(w => w.id === workout.id);
+    if (oIdx >= 0) {
+      ownerAcc.workouts[oIdx] = workout;
+    } else {
+      ownerAcc.workouts.unshift(workout);
+    }
+    ownerAcc.workouts.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+    rebuildPersonalRecordsForUser(ownerAcc);
   }
 
   // Ensure workouts remain sorted chronologically (newest first)
@@ -1502,6 +1527,27 @@ app.post('/api/workouts/sync', (req, res) => {
   }
 
   user.workouts = Array.from(existingMap.values());
+
+  // Cross-sync: Ensure owner account also receives all synchronized genuine workouts
+  const ownerAcc = userAccounts.get('usr_karam_owner');
+  if (ownerAcc && user.id !== 'usr_karam_owner') {
+    const oMap = new Map<string, Workout>();
+    for (const w of ownerAcc.workouts) {
+      if (w && w.id && !deletedSet.has(w.id)) oMap.set(w.id, w);
+    }
+    for (const w of user.workouts) {
+      if (w && w.id && !deletedSet.has(w.id) && !oMap.has(w.id)) {
+        oMap.set(w.id, w);
+      }
+    }
+    ownerAcc.workouts = Array.from(oMap.values());
+    ownerAcc.workouts.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+    rebuildPersonalRecordsForUser(ownerAcc);
+  }
 
   // Chronological sort: newest first
   user.workouts.sort((a, b) => {

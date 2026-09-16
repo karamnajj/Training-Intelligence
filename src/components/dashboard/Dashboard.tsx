@@ -132,14 +132,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
               {/* Target Muscles Badges */}
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {radar.suggestedFocusToday.muscles.map(mId => (
-                  <span
-                    key={mId}
-                    className="px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[11px] font-semibold"
-                  >
-                    {MUSCLE_CATALOG[mId]?.name || mId}
-                  </span>
-                ))}
+                {radar.suggestedFocusToday.muscles.map(mId => {
+                  const exp = musclesData[mId];
+                  const isUntrained = exp?.freshnessStatus === 'untrained' || (!exp?.lastTrainedAt && (exp?.effectiveSets30d || 0) === 0);
+                  return (
+                    <span
+                      key={mId}
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 ${
+                        isUntrained
+                          ? 'bg-amber-500/20 border border-amber-400/40 text-amber-300'
+                          : 'bg-emerald-500/20 border border-emerald-400/30 text-emerald-300'
+                      }`}
+                    >
+                      {MUSCLE_CATALOG[mId]?.name || mId}
+                      {isUntrained && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-1 rounded bg-amber-400/30 text-amber-200">
+                          Untrained
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             </div>
 

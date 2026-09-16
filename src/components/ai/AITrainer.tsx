@@ -62,11 +62,24 @@ export const AITrainer: React.FC<AITrainerProps> = ({
   const isNearBottomRef = useRef(true);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
-    }
-  };
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const doScroll = () => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTo({
+          top: messagesContainerRef.current.scrollHeight,
+          behavior
+        });
+      }
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
+      }
+    };
+    doScroll();
+    requestAnimationFrame(() => {
+      doScroll();
+      setTimeout(doScroll, 60);
+    });
+  }, []);
 
   const handleScroll = () => {
     const container = messagesContainerRef.current;
@@ -92,17 +105,13 @@ export const AITrainer: React.FC<AITrainerProps> = ({
     }).catch(() => {});
 
     return () => { isMounted = false; };
-  }, [getDefaultWelcome]);
+  }, [getDefaultWelcome, scrollToBottom]);
 
-  // Auto-scroll down when new messages are added or coach is typing, unless user scrolled up
+  // Auto-scroll down when new messages are added or coach is typing, or when trainer has written something
   useEffect(() => {
     if (messages.length === 0) return;
-    const lastMsg = messages[messages.length - 1];
-    // Always scroll down immediately if the message was sent by the user, or if user is near bottom, or when loading starts
-    if (lastMsg?.sender === 'user' || isNearBottomRef.current || isLoading) {
-      scrollToBottom('smooth');
-    }
-  }, [messages, isLoading]);
+    scrollToBottom('smooth');
+  }, [messages, isLoading, scrollToBottom]);
 
   // Helper to append message and automatically persist to vault and backend
   const appendMessage = (newMsg: AIMessage) => {

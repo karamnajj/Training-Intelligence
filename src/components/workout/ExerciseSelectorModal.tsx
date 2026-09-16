@@ -34,16 +34,29 @@ export const ExerciseSelectorModal: React.FC<ExerciseSelectorModalProps> = ({
 
   const filteredExercises = useMemo(() => {
     const searchTrimmed = search.trim().toLowerCase();
+    const searchClean = searchTrimmed.replace(/[-_()]/g, ' ').replace(/\s+/g, ' ');
+    const searchWords = searchClean.split(' ').filter(Boolean);
+
     return EXERCISE_DATABASE.filter(ex => {
       if (excludeExerciseIds.includes(ex.id)) return false;
+
+      const nameClean = ex.name.toLowerCase().replace(/[-_()]/g, ' ');
+      const descClean = ex.description.toLowerCase().replace(/[-_()]/g, ' ');
+      const equipClean = ex.equipment.toLowerCase().replace(/[-_()]/g, ' ');
+      const categoryClean = ex.category.toLowerCase();
+      const muscleNames = ex.muscles.map(m => (MUSCLE_CATALOG[m.muscleId]?.name || '').toLowerCase()).join(' ');
 
       const matchesSearch =
         !searchTrimmed ||
         ex.name.toLowerCase().includes(searchTrimmed) ||
-        ex.description.toLowerCase().includes(searchTrimmed) ||
-        ex.equipment.toLowerCase().replace(/_/g, ' ').includes(searchTrimmed) ||
-        ex.category.toLowerCase().includes(searchTrimmed) ||
-        ex.muscles.some(m => MUSCLE_CATALOG[m.muscleId]?.name.toLowerCase().includes(searchTrimmed));
+        nameClean.includes(searchClean) ||
+        searchWords.every(word =>
+          nameClean.includes(word) ||
+          descClean.includes(word) ||
+          equipClean.includes(word) ||
+          categoryClean.includes(word) ||
+          muscleNames.includes(word)
+        );
 
       const matchesCategory = selectedCategory === 'all' || ex.category === selectedCategory;
       const matchesEquipment =

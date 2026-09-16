@@ -203,16 +203,41 @@ export const storageVault = {
     // Guarantee no non-genuine or deleted workouts enter the vault
     const cleanList = (workouts || []).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
 
+    // Maintain unified master collection: union of existing master and incoming cleanList
+    let masterUnified = [...cleanList];
     try {
-      localStorage.setItem(LS_KEYS.MASTER_WORKOUTS, JSON.stringify(cleanList));
-      localStorage.setItem(k, JSON.stringify(cleanList));
-      localStorage.setItem(LS_KEYS.WORKOUTS, JSON.stringify(cleanList));
+      const rawMaster = localStorage.getItem(LS_KEYS.MASTER_WORKOUTS);
+      if (rawMaster) {
+        const parsed = JSON.parse(rawMaster);
+        if (Array.isArray(parsed)) {
+          const map = new Map<string, Workout>();
+          for (const w of parsed) {
+            if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) map.set(w.id, w);
+          }
+          for (const w of cleanList) {
+            map.set(w.id, w);
+          }
+          masterUnified = Array.from(map.values());
+        }
+      }
+    } catch {}
+
+    masterUnified.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+
+    try {
+      localStorage.setItem(LS_KEYS.MASTER_WORKOUTS, JSON.stringify(masterUnified));
+      localStorage.setItem(k, JSON.stringify(cleanList.length > 0 ? cleanList : masterUnified));
+      localStorage.setItem(LS_KEYS.WORKOUTS, JSON.stringify(masterUnified));
     } catch (e) {
       console.warn('[StorageVault] LocalStorage write notice:', e);
     }
     await Promise.all([
-      idbSet(LS_KEYS.MASTER_WORKOUTS, cleanList),
-      idbSet(k, cleanList)
+      idbSet(LS_KEYS.MASTER_WORKOUTS, masterUnified),
+      idbSet(k, cleanList.length > 0 ? cleanList : masterUnified)
     ]);
     this.markSyncTimestamp();
   },
@@ -221,15 +246,10 @@ export const storageVault = {
     const delSet = getDeletedWorkoutIds();
     const validIncoming = (incomingWorkouts || []).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
 
-    if (replace) {
-      await this.persistDirectWorkouts(validIncoming);
-      return;
-    }
-
     const existing = await this.getWorkouts();
     const map = new Map<string, Workout>();
 
-    // 1. Load existing safe workouts
+    // 1. Load existing safe workouts (never discard previous workouts unless explicitly deleted)
     for (const w of existing) {
       if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) {
         map.set(w.id, w);

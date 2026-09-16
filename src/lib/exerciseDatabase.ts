@@ -1308,6 +1308,81 @@ export const EXERCISE_DATABASE: Exercise[] = [
       { muscleId: 'hamstrings', role: 'SECONDARY', contributionFactor: 0.4 },
       { muscleId: 'adductors', role: 'SECONDARY', contributionFactor: 0.4 }
     ]
+  },
+  {
+    id: 'tricep_curl_dips_machine',
+    name: 'Tricep Curl (Dips Machine)',
+    category: 'arms',
+    movementPattern: 'push_vertical',
+    equipment: 'machine',
+    mechanics: 'compound',
+    description: 'Seated machine dip press (also referred to as tricep dip curl machine) where dual handles are driven downward with lap belt or thigh restraint to heavily load the triceps while minimizing shoulder strain.',
+    muscles: [
+      { muscleId: 'triceps', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'chest_lower', role: 'SECONDARY', contributionFactor: 0.4 },
+      { muscleId: 'chest_mid', role: 'SECONDARY', contributionFactor: 0.3 },
+      { muscleId: 'anterior_deltoid', role: 'SECONDARY', contributionFactor: 0.4 }
+    ],
+    tips: [
+      'Fasten the lap belt or adjust the thigh pad securely so your body stays anchored to the seat.',
+      'Tuck elbows in close to the torso to channel maximal force through the triceps rather than pecs.',
+      'Descend with smooth control to approximately 90 degrees before driving down into lockout.'
+    ]
+  },
+  {
+    id: 'chest_supported_seated_back_row',
+    name: 'Chest-Supported Seated Back Row',
+    category: 'back',
+    movementPattern: 'pull_horizontal',
+    equipment: 'machine',
+    mechanics: 'compound',
+    description: 'Horizontal seated back row with chest pinned firmly against an angled support pad, eliminating spinal loading and lower back fatigue for pure lat, rhomboid, rear delt, and mid-trap hypertrophy.',
+    muscles: [
+      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'posterior_deltoid', role: 'SECONDARY', contributionFactor: 0.7 },
+      { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'forearms', role: 'SECONDARY', contributionFactor: 0.3 }
+    ],
+    tips: [
+      'Adjust seat and chest pad height so the handles align directly with your mid-torso.',
+      'Pull through your elbows rather than wrists, feeling the full contraction across your lats and mid-back.',
+      'Keep chest glued against the pad throughout the negative stretch without arching away.'
+    ]
+  },
+  {
+    id: 'back_supported_cable_tricep_pushdown',
+    name: 'Back-Supported Cable Tricep Pushdown',
+    category: 'arms',
+    movementPattern: 'isolation',
+    equipment: 'cable',
+    mechanics: 'isolation',
+    description: 'Ultra-stable tricep pushdown executed with back braced against an incline bench or vertical pad, completely neutralizing body sway and shoulder momentum for hyper-pure triceps tension.',
+    muscles: [
+      { muscleId: 'triceps', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'forearms', role: 'SECONDARY', contributionFactor: 0.2 }
+    ],
+    tips: [
+      'Set an incline bench or vertical pad directly behind you to brace your spine and hips rigidly.',
+      'Pin upper arms tight to your ribs and extend elbows fully to contract all three triceps heads.',
+      'Hold the bottom squeeze for a full second before controlling the negative back to 90 degrees.'
+    ]
+  },
+  {
+    id: 'seated_machine_tricep_curl',
+    name: 'Seated Machine Tricep Curl (Extension)',
+    category: 'arms',
+    movementPattern: 'isolation',
+    equipment: 'machine',
+    mechanics: 'isolation',
+    description: 'Arm-supported selectorized tricep curl/extension machine with angled elbow pads, locking the humerus in place to isolate the lateral and medial heads through full extension.',
+    muscles: [
+      { muscleId: 'triceps', role: 'PRIMARY', contributionFactor: 1.0 }
+    ],
+    tips: [
+      'Line up your elbow joint with the machine rotational pivot cam.',
+      'Keep your upper arms flat against the pad and squeeze triceps hard at peak contraction.'
+    ]
   }
 ];
 

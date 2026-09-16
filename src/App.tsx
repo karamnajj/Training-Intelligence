@@ -336,8 +336,24 @@ export function App() {
 
   // Workout completion handler
   const handleFinishActiveWorkout = async (finishedWorkout: Workout) => {
-    // 1. Immediately update React state so the workout is NEVER lost
-    const immediateList = [finishedWorkout, ...workouts.filter(w => w.id !== finishedWorkout.id)];
+    // 1. Gather all existing workouts from React state AND storage vault so nothing is ever dropped
+    const vaultWorkouts = await storageVault.getWorkouts().catch(() => []);
+    const delIds = new Set(storageVault.getDeletedWorkoutIds());
+    const initialMap = new Map<string, Workout>();
+
+    for (const w of [...workouts, ...vaultWorkouts]) {
+      if (w && w.id && !delIds.has(w.id) && isGenuineWorkout(w)) {
+        initialMap.set(w.id, w);
+      }
+    }
+    initialMap.set(finishedWorkout.id, finishedWorkout);
+    const immediateList = Array.from(initialMap.values());
+    immediateList.sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+
     setWorkouts(immediateList);
     setMusclesData(calculateMuscleExposures(immediateList, EXERCISES_MAP));
     setRadar(buildTrainingRadar(immediateList, EXERCISES_MAP));
@@ -346,7 +362,6 @@ export function App() {
       const res = await api.saveWorkout(finishedWorkout);
       const saved = res.workout || finishedWorkout;
       
-      const delIds = new Set(storageVault.getDeletedWorkoutIds());
       const map = new Map<string, Workout>();
       for (const w of immediateList) {
         if (w && w.id && !delIds.has(w.id) && isGenuineWorkout(w)) map.set(w.id, w);
@@ -385,6 +400,9 @@ export function App() {
         const prs = await api.getPersonalRecords();
         setPersonalRecords(prs);
       }
+
+      // Synchronize full list with server
+      api.syncWorkouts(updatedList).catch(() => {});
     } catch (err) {
       console.error('Notice saving finished workout to server:', err);
     } finally {
