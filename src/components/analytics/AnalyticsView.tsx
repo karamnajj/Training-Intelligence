@@ -7,7 +7,7 @@ import {
   MuscleId,
   UserProfile
 } from '../../types';
-import { MUSCLE_CATALOG } from '../../lib/muscleMath';
+import { MUSCLE_CATALOG, getMuscleBroName } from '../../lib/muscleMath';
 import {
   ResponsiveContainer,
   BarChart,
@@ -67,7 +67,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   // Prepare Muscle 7-Day Exposure Bar Data
   const muscleVolumeData = (Object.values(musclesData) as MuscleExposureData[])
     .map(m => ({
-      name: MUSCLE_CATALOG[m.muscleId]?.name.split(' ')[0] || m.muscleId,
+      name: getMuscleBroName(m.muscleId),
       sets7d: m.effectiveSets7d,
       sets30d: m.effectiveSets30d,
       status: m.freshnessStatus

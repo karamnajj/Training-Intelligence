@@ -10,7 +10,7 @@ import {
   MuscleId
 } from './types';
 import { api } from './lib/api';
-import { storageVault, isGenuineWorkout } from './lib/storageVault';
+import { storageVault, isGenuineWorkout, getDeletedWorkoutIds } from './lib/storageVault';
 import { calculateMuscleExposures, buildTrainingRadar, generateRecommendedWorkoutSession } from './lib/muscleMath';
 import { EXERCISES_MAP } from './lib/exerciseDatabase';
 import { WORKOUT_TEMPLATES } from './lib/seedData';
@@ -18,6 +18,7 @@ import {
   auth,
   subscribeToFirebaseAuth,
   getWorkoutsFromFirestore,
+  saveWorkoutToFirestore,
   getTemplatesFromFirestore,
   getUserProfileFromFirestore
 } from './lib/firebase';
@@ -84,6 +85,17 @@ export function App() {
 
   // Load initial backend state with instant local vault restore
   const loadData = async () => {
+    // Standardize identity: ensure unauthenticated sessions bind to usr_karam_owner while preserving usr_guest_demo
+    try {
+      const savedUid = localStorage.getItem('training_intel_user_id');
+      if (!savedUid || savedUid === 'usr_athlete_local' || savedUid === 'usr_default') {
+        localStorage.setItem('training_intel_user_id', 'usr_karam_owner');
+        localStorage.setItem('training_intel_user_email', 'karamnajj79@gmail.com');
+        localStorage.setItem('training_intel_user_name', 'Karam');
+        api.setSession(localStorage.getItem('training_intel_token') || 'tok_owner', 'usr_karam_owner', 'karamnajj79@gmail.com');
+      }
+    } catch {}
+
     // Phase 1: Instant Local Restore with Sanitization
     try {
       // Clean out any corrupted or template entries before loading
@@ -97,17 +109,19 @@ export function App() {
         storageVault.getRecords()
       ]);
 
-      if (cachedUser) {
+      const activeUid = localStorage.getItem('training_intel_user_id') || 'usr_karam_owner';
+      const isGuest = activeUid === 'usr_guest_demo';
+
+      if (cachedUser && (cachedUser.id === activeUid || (isGuest && cachedUser.id === 'usr_guest_demo'))) {
         const cleanName = formatAthleteName(cachedUser.username, cachedUser.email);
         const resolvedUser = { ...cachedUser, username: cleanName };
         setCurrentUser(resolvedUser);
-      } else if (cachedW && cachedW.length > 0) {
-        const savedUid = localStorage.getItem('training_intel_user_id') || 'usr_athlete_local';
-        const savedEmail = localStorage.getItem('training_intel_user_email') || 'athlete@trainingintel.app';
-        const savedName = localStorage.getItem('training_intel_user_name');
+      } else {
+        const savedEmail = localStorage.getItem('training_intel_user_email') || (isGuest ? 'guest@trainingintel.demo' : 'karamnajj79@gmail.com');
+        const savedName = localStorage.getItem('training_intel_user_name') || (isGuest ? 'Alex Vance (Guest)' : 'Karam');
         const cleanName = formatAthleteName(savedName, savedEmail);
         const autoUser: AuthUser = {
-          id: savedUid,
+          id: activeUid,
           email: savedEmail,
           username: cleanName,
           createdAt: new Date().toISOString()
@@ -157,11 +171,13 @@ export function App() {
       if (p) setProfile(p);
       if (Array.isArray(w)) {
         setWorkouts(w);
+        setMusclesData(calculateMuscleExposures(w, EXERCISES_MAP));
+        setRadar(buildTrainingRadar(w, EXERCISES_MAP));
       }
       if (t && t.length > 0) setTemplates(t);
       if (Array.isArray(pr)) setPersonalRecords(pr);
-      if (m) setMusclesData(m);
-      if (r) setRadar(r);
+      if (m && (!w || w.length === 0)) setMusclesData(m);
+      if (r && (!w || w.length === 0)) setRadar(r);
     } catch (err) {
       console.warn('Network sync notice (local data preserved):', err);
     } finally {
@@ -172,8 +188,31 @@ export function App() {
   useEffect(() => {
     loadData();
 
+    // Re-sync whenever user returns to tab, unlocks mobile screen, or regains network
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    const handleFocus = () => {
+      loadData();
+    };
+    const handleOnline = () => {
+      loadData();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnline);
+
     // Continuous Firebase Auth sync to preserve user data across app reloads and republishes
     const unsubscribe = subscribeToFirebaseAuth(async (fbUser) => {
+      // If user has switched to the Guest Demo account, do not overwrite the session with Firebase
+      const currentActiveId = localStorage.getItem('training_intel_user_id');
+      if (currentActiveId === 'usr_guest_demo') {
+        return;
+      }
+
       if (fbUser) {
         const uid = fbUser.uid;
         const email = fbUser.email || '';
@@ -206,13 +245,52 @@ export function App() {
             storageVault.saveProfile(resolvedProf).catch(() => {});
           }
 
-          if (Array.isArray(cloudWorkouts) && cloudWorkouts.length > 0) {
-            await storageVault.saveWorkouts(cloudWorkouts);
-            const currentVaultWorkouts = await storageVault.getWorkouts();
-            setWorkouts(currentVaultWorkouts);
-            setMusclesData(calculateMuscleExposures(currentVaultWorkouts, EXERCISES_MAP));
-            setRadar(buildTrainingRadar(currentVaultWorkouts, EXERCISES_MAP));
-            api.syncWorkouts(currentVaultWorkouts).catch(() => {});
+          // Full bidirectional union between Firestore and local/server workouts
+          const currentVaultWorkouts = await storageVault.getWorkouts();
+          const delSet = getDeletedWorkoutIds();
+          const unifiedMap = new Map<string, Workout>();
+
+          for (const w of currentVaultWorkouts) {
+            if (w?.id && isGenuineWorkout(w) && !delSet.has(w.id)) unifiedMap.set(w.id, w);
+          }
+          if (Array.isArray(cloudWorkouts)) {
+            for (const cw of cloudWorkouts) {
+              if (cw?.id && isGenuineWorkout(cw) && !delSet.has(cw.id)) {
+                const exist = unifiedMap.get(cw.id);
+                if (!exist) {
+                  unifiedMap.set(cw.id, cw);
+                } else {
+                  const existSets = exist.totalSets || (exist.exercises ? exist.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+                  const cwSets = cw.totalSets || (cw.exercises ? cw.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+                  if (cwSets >= existSets || cw.completedAt) {
+                    unifiedMap.set(cw.id, { ...exist, ...cw });
+                  }
+                }
+              }
+            }
+          }
+
+          const unifiedWorkouts = Array.from(unifiedMap.values());
+          unifiedWorkouts.sort((a, b) => {
+            const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+            const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+            return tB - tA;
+          });
+
+          if (unifiedWorkouts.length > 0) {
+            await storageVault.saveWorkouts(unifiedWorkouts);
+            setWorkouts(unifiedWorkouts);
+            setMusclesData(calculateMuscleExposures(unifiedWorkouts, EXERCISES_MAP));
+            setRadar(buildTrainingRadar(unifiedWorkouts, EXERCISES_MAP));
+            api.syncWorkouts(unifiedWorkouts).catch(() => {});
+
+            // Auto-heal cloud: Upload any workouts missing in Firestore
+            const cloudIds = new Set((cloudWorkouts || []).map(w => w.id));
+            for (const uw of unifiedWorkouts) {
+              if (!cloudIds.has(uw.id)) {
+                saveWorkoutToFirestore(uid, uw).catch(() => {});
+              }
+            }
           }
 
           if (Array.isArray(cloudTemplates) && cloudTemplates.length > 0) {
@@ -225,7 +303,12 @@ export function App() {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnline);
+      unsubscribe();
+    };
   }, []);
 
   // Dark mode HTML class toggle
@@ -442,6 +525,9 @@ export function App() {
         const prs = await api.getPersonalRecords();
         setPersonalRecords(prs);
       }
+
+      // Automatically sync updated list with server and cloud
+      api.syncWorkouts(updatedList).catch(() => {});
     } catch (err) {
       console.error('Error updating workout:', err);
     }
@@ -467,6 +553,20 @@ export function App() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleManualSyncData = async () => {
+    try {
+      await loadData();
+      const fresh = await api.getWorkouts();
+      if (Array.isArray(fresh) && fresh.length > 0) {
+        setWorkouts(fresh);
+        setMusclesData(calculateMuscleExposures(fresh, EXERCISES_MAP));
+        setRadar(buildTrainingRadar(fresh, EXERCISES_MAP));
+      }
+    } catch (err) {
+      console.warn('Manual sync notice:', err);
     }
   };
 
@@ -588,8 +688,15 @@ export function App() {
     const resolvedProf = { ...userProf, name: cleanProfName };
     setCurrentUser(resolvedUser);
     setProfile(resolvedProf);
-    storageVault.saveUser(resolvedUser).catch(() => {});
-    storageVault.saveProfile(resolvedProf).catch(() => {});
+    try {
+      localStorage.setItem('training_intel_user_id', user.id);
+      localStorage.setItem('training_intel_user_email', user.email);
+      localStorage.setItem('training_intel_user_name', cleanUserName);
+    } catch {}
+    await Promise.all([
+      storageVault.saveUser(resolvedUser),
+      storageVault.saveProfile(resolvedProf)
+    ]);
     setIsLoading(true);
     await loadData();
   };
@@ -866,6 +973,7 @@ export function App() {
                 onDeleteWorkout={handleDeleteWorkout}
                 onStartNewWorkout={handleStartBlankWorkout}
                 onClearAllWorkouts={handleClearAllWorkouts}
+                onSync={handleManualSyncData}
               />
             )}
 

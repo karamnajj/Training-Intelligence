@@ -1,6 +1,6 @@
 import React from 'react';
 import { MuscleId, MuscleExposureData } from '../../types';
-import { FRESHNESS_COLORS } from '../../lib/muscleMath';
+import { MUSCLE_CATALOG, FRESHNESS_COLORS } from '../../lib/muscleMath';
 
 interface BodyMapSVGProps {
   view: 'front' | 'back';
@@ -49,6 +49,7 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
     name: string,
     children: React.ReactNode
   ) => {
+    const displayName = MUSCLE_CATALOG[id]?.name || name;
     return (
       <g
         id={`muscle-group-${id}`}
@@ -58,7 +59,7 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
         onClick={() => onSelectMuscle(id)}
         role="button"
         tabIndex={0}
-        aria-label={name}
+        aria-label={displayName}
       >
         {children}
       </g>

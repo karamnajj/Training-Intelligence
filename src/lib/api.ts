@@ -16,7 +16,7 @@ import {
 import { EXERCISE_DATABASE, EXERCISES_MAP } from './exerciseDatabase';
 import { DEFAULT_USER_PROFILE, WORKOUT_TEMPLATES } from './seedData';
 import { calculateMuscleExposures, buildTrainingRadar } from './muscleMath';
-import { storageVault, isGenuineWorkout, getDeletedWorkoutIds, addDeletedWorkoutIds } from './storageVault';
+import { storageVault, isGenuineWorkout, getDeletedWorkoutIds, addDeletedWorkoutIds, removeDeletedWorkoutId } from './storageVault';
 import {
   auth,
   saveWorkoutToFirestore,
@@ -70,6 +70,8 @@ export const api = {
   getHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store',
+      'Pragma': 'no-cache',
       ...customHeaders
     };
     const token = this.getToken();
@@ -150,14 +152,18 @@ export const api = {
       throw new Error(err.error || 'Guest login failed');
     }
     const data: AuthResponse = await res.json();
+    try {
+      await signOutFromFirebase();
+    } catch {}
     if (data.token) {
       this.setSession(data.token, data.user?.id, data.user?.email);
     }
     if (data.user) {
-      storageVault.saveUser(data.user).catch(() => {});
+      localStorage.setItem('training_intel_user_name', data.user.username);
+      await storageVault.saveUser(data.user);
     }
     if (data.profile) {
-      storageVault.saveProfile(data.profile).catch(() => {});
+      await storageVault.saveProfile(data.profile);
     }
     return data;
   },
@@ -239,8 +245,20 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to switch user account');
     const data: AuthResponse = await res.json();
+    if (userId === 'usr_guest_demo') {
+      try {
+        await signOutFromFirebase();
+      } catch {}
+    }
     if (data.token) {
       this.setSession(data.token, data.user?.id, data.user?.email);
+    }
+    if (data.user) {
+      localStorage.setItem('training_intel_user_name', data.user.username);
+      await storageVault.saveUser(data.user);
+    }
+    if (data.profile) {
+      await storageVault.saveProfile(data.profile);
     }
     return data;
   },
@@ -360,8 +378,17 @@ export const api = {
 
   async getWorkouts(): Promise<Workout[]> {
     const workoutMap = new Map<string, Workout>();
-    let currentFirebaseUser = auth.currentUser;
-    if (!currentFirebaseUser) {
+    const activeUserId = (() => {
+      try {
+        return localStorage.getItem('training_intel_user_id') || '';
+      } catch {
+        return '';
+      }
+    })();
+    const isGuest = activeUserId === 'usr_guest_demo';
+
+    let currentFirebaseUser = isGuest ? null : auth.currentUser;
+    if (!currentFirebaseUser && !isGuest) {
       currentFirebaseUser = await waitForFirebaseAuth(350);
     }
 
@@ -394,8 +421,8 @@ export const api = {
       console.warn('[StorageVault] Local workouts retrieval notice:', lErr);
     }
 
-    // 2. Cloud Firestore: If Firebase user is authenticated, retrieve directly from cloud and auto-purge tombstones
-    if (currentFirebaseUser?.uid) {
+    // 2. Cloud Firestore: If Firebase user is authenticated (and not guest), retrieve directly from cloud and auto-purge tombstones
+    if (!isGuest && currentFirebaseUser?.uid) {
       try {
         const firestoreWorkouts = await getWorkoutsFromFirestore(currentFirebaseUser.uid, delSet);
         if (Array.isArray(firestoreWorkouts) && firestoreWorkouts.length > 0) {
@@ -419,24 +446,30 @@ export const api = {
       }
     }
 
-    // 3. Query backend server and merge
+    // 3. Query backend server and merge (Desktop/Server is source of truth)
     try {
-      const res = await fetch(`${BASE_URL}/workouts`, {
-        headers: this.getHeaders()
+      const res = await fetch(`${BASE_URL}/workouts?_t=${Date.now()}`, {
+        headers: this.getHeaders(),
+        cache: 'no-store'
       });
       if (res.ok) {
         const serverWorkouts: Workout[] = await res.json();
         if (Array.isArray(serverWorkouts) && serverWorkouts.length > 0) {
           for (const sw of serverWorkouts) {
-            if (sw && sw.id && isGenuineWorkout(sw) && !delSet.has(sw.id)) {
+            if (sw && sw.id && isGenuineWorkout(sw)) {
+              // Server actively returned this workout: it is alive! Un-tombstone if needed
+              if (delSet.has(sw.id)) {
+                removeDeletedWorkoutId(sw.id);
+                delSet.delete(sw.id);
+              }
               const existing = workoutMap.get(sw.id);
               if (!existing) {
                 workoutMap.set(sw.id, sw);
               } else {
                 const exSets = existing.totalSets || (existing.exercises ? existing.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
                 const swSets = sw.totalSets || (sw.exercises ? sw.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
-                if (swSets >= exSets) {
-                  workoutMap.set(sw.id, sw);
+                if (swSets >= exSets || sw.completedAt) {
+                  workoutMap.set(sw.id, { ...existing, ...sw });
                 }
               }
             }
@@ -454,10 +487,16 @@ export const api = {
       return tB - tA;
     });
 
-    // 4. Save consolidated workouts back to storage vault with replacement
-    await storageVault.saveWorkouts(mergedList, true);
+    // 4. Save consolidated workouts back to storage vault safely
+    await storageVault.saveWorkouts(mergedList, false);
 
-    // Auto-Heal: Sync with server in background
+    // Auto-Heal: Sync with Firestore and server
+    if (!isGuest && currentFirebaseUser?.uid && mergedList.length > 0) {
+      for (const w of mergedList) {
+        saveWorkoutToFirestore(currentFirebaseUser.uid, w).catch(() => {});
+      }
+    }
+
     if (mergedList.length > 0) {
       this.syncWorkouts(mergedList).catch(() => {});
     }

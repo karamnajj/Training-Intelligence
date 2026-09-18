@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { WorkoutTemplate, Exercise, MuscleId } from '../../types';
-import { MUSCLE_CATALOG } from '../../lib/muscleMath';
+import { MUSCLE_CATALOG, getMuscleBroName } from '../../lib/muscleMath';
 import { EXERCISES_MAP } from '../../lib/exerciseDatabase';
 import { ExerciseSelectorModal } from '../workout/ExerciseSelectorModal';
 import {
@@ -288,7 +288,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                         key={mId}
                         className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-900/30"
                       >
-                        {MUSCLE_CATALOG[mId]?.name.split(' ')[0] || mId}
+                        {getMuscleBroName(mId)}
                       </span>
                     ))}
                   </div>

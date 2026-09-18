@@ -205,6 +205,29 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
 export function getSeedWorkouts(): Workout[] {
   return [
     {
+      id: 'workout_gym_test_1789483620040',
+      name: 'Leg Day & Squat Progression',
+      startedAt: '2026-09-15T13:45:00.000Z',
+      completedAt: '2026-09-15T14:47:00.040Z',
+      durationSeconds: 3720,
+      notes: 'Heavy back squat session with explosive ascent and deep range of motion.',
+      totalVolumeKg: 800,
+      totalSets: 1,
+      musclesTrained: ['quadriceps', 'gluteus'],
+      rpeAverage: 8.5,
+      exercises: [
+        {
+          id: 'ex_squat_1',
+          exerciseId: 'barbell_squat',
+          exerciseName: 'Barbell Back Squat',
+          notes: 'Top working set at 100kg x 8 reps',
+          sets: [
+            { id: 'sq_1', setNumber: 1, type: 'normal', weightKg: 100, reps: 8, completed: true, rpe: 8.5 }
+          ]
+        }
+      ]
+    },
+    {
       id: 'workout_1788937113526_889u4',
       name: 'Heavy Push & Chest Focus',
       startedAt: '2026-09-08T22:15:00.000Z',
@@ -312,6 +335,275 @@ export function getSeedWorkouts(): Workout[] {
           ]
         }
       ]
+    }
+  ];
+}
+
+/**
+ * Showcase workout dataset specifically crafted for Alex Vance (Guest Reviewer account).
+ * Spans an optimal anatomical training frequency anchored dynamically to refDate (Date.now())
+ * so that when a recruiter opens the app, the 2D & 3D body maps display a vibrant, high-contrast
+ * spectrum of recovery states (Red = High Exposure, Orange = Recently Trained, Yellow = Moderate, Green = Fresh).
+ */
+export function getGuestShowcaseWorkouts(refDate: Date = new Date()): Workout[] {
+  const now = refDate.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  return [
+    // 1. Session 1: Yesterday (~1.0 day ago) - Heavy Incline Chest & Front Deltoid Push (RED - High Recent Exposure)
+    {
+      id: 'alex_showcase_push_yesterday',
+      name: 'Heavy Upper Chest & Deltoid Power',
+      startedAt: new Date(now - 1.0 * dayMs - 3720000).toISOString(),
+      completedAt: new Date(now - 1.0 * dayMs).toISOString(),
+      durationSeconds: 3720,
+      notes: 'Clean locks on incline dumbbells and heavy flat barbell press. Pectorals and anterior delts fully stimulated.',
+      totalVolumeKg: 4280,
+      totalSets: 9,
+      musclesTrained: ['chest_upper', 'chest_mid', 'anterior_deltoid', 'lateral_deltoid'],
+      rpeAverage: 8.5,
+      exercises: [
+        {
+          id: 'alex_ex_1',
+          exerciseId: 'incline_dumbbell_press',
+          exerciseName: 'Incline Dumbbell Bench Press',
+          notes: 'Strong clavicular stretch with 36kg bells',
+          sets: [
+            { id: 'as1', setNumber: 1, type: 'normal', weightKg: 34, reps: 10, completed: true, rpe: 8 },
+            { id: 'as2', setNumber: 2, type: 'normal', weightKg: 36, reps: 8, completed: true, rpe: 8.5 },
+            { id: 'as3', setNumber: 3, type: 'normal', weightKg: 36, reps: 8, completed: true, rpe: 9 }
+          ]
+        },
+        {
+          id: 'alex_ex_2',
+          exerciseId: 'barbell_bench_press',
+          exerciseName: 'Barbell Bench Press (Flat)',
+          notes: 'Top working sets at 100kg',
+          sets: [
+            { id: 'as4', setNumber: 1, type: 'normal', weightKg: 100, reps: 8, completed: true, rpe: 8.5 },
+            { id: 'as5', setNumber: 2, type: 'normal', weightKg: 100, reps: 8, completed: true, rpe: 9 },
+            { id: 'as6', setNumber: 3, type: 'normal', weightKg: 95, reps: 10, completed: true, rpe: 8.5 }
+          ]
+        },
+        {
+          id: 'alex_ex_3',
+          exerciseId: 'dumbbell_lateral_raise',
+          exerciseName: 'Dumbbell Lateral Raise',
+          notes: 'Strict lateral abduction targeting side delts',
+          sets: [
+            { id: 'as7', setNumber: 1, type: 'normal', weightKg: 15, reps: 15, completed: true, rpe: 8 },
+            { id: 'as8', setNumber: 2, type: 'normal', weightKg: 15, reps: 14, completed: true, rpe: 8.5 },
+            { id: 'as9', setNumber: 3, type: 'normal', weightKg: 17.5, reps: 12, completed: true, rpe: 9 }
+          ]
+        }
+      ]
+    },
+
+    // 2. Session 2: 2 days ago (~2.1 days ago) - Lat Width & Pull Hypertrophy (ORANGE - Recently Trained)
+    {
+      id: 'alex_showcase_pull_2d',
+      name: 'Lat Hypertrophy & Posterior Chain',
+      startedAt: new Date(now - 2.1 * dayMs - 4200000).toISOString(),
+      completedAt: new Date(now - 2.1 * dayMs).toISOString(),
+      durationSeconds: 4200,
+      notes: 'Excellent lat contraction and heavy seated cable rows. Great bicep and rear delt accessory pump.',
+      totalVolumeKg: 4620,
+      totalSets: 11,
+      musclesTrained: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'],
+      rpeAverage: 8.4,
+      exercises: [
+        {
+          id: 'alex_ex_4',
+          exerciseId: 'lat_pulldown',
+          exerciseName: 'Lat Pulldown',
+          notes: 'Wide grip pulling smoothly to clavicle',
+          sets: [
+            { id: 'as10', setNumber: 1, type: 'normal', weightKg: 80, reps: 10, completed: true, rpe: 8 },
+            { id: 'as11', setNumber: 2, type: 'normal', weightKg: 85, reps: 8, completed: true, rpe: 8.5 },
+            { id: 'as12', setNumber: 3, type: 'normal', weightKg: 75, reps: 12, completed: true, rpe: 8 }
+          ]
+        },
+        {
+          id: 'alex_ex_5',
+          exerciseId: 'seated_cable_row',
+          exerciseName: 'Seated Cable Row',
+          notes: 'Full scapular retraction and mid-back squeeze',
+          sets: [
+            { id: 'as13', setNumber: 1, type: 'normal', weightKg: 75, reps: 10, completed: true, rpe: 8 },
+            { id: 'as14', setNumber: 2, type: 'normal', weightKg: 80, reps: 8, completed: true, rpe: 8.5 },
+            { id: 'as15', setNumber: 3, type: 'normal', weightKg: 80, reps: 8, completed: true, rpe: 9 }
+          ]
+        },
+        {
+          id: 'alex_ex_6',
+          exerciseId: 'face_pulls',
+          exerciseName: 'Face Pulls',
+          notes: 'High cable pull for rear delts and lower traps',
+          sets: [
+            { id: 'as16', setNumber: 1, type: 'normal', weightKg: 35, reps: 15, completed: true, rpe: 7.5 },
+            { id: 'as17', setNumber: 2, type: 'normal', weightKg: 40, reps: 12, completed: true, rpe: 8 }
+          ]
+        },
+        {
+          id: 'alex_ex_7',
+          exerciseId: 'incline_dumbbell_curl',
+          exerciseName: 'Incline Dumbbell Curl',
+          notes: 'Deep long-head bicep stretch',
+          sets: [
+            { id: 'as18', setNumber: 1, type: 'normal', weightKg: 16, reps: 10, completed: true, rpe: 8 },
+            { id: 'as19', setNumber: 2, type: 'normal', weightKg: 16, reps: 10, completed: true, rpe: 8.5 },
+            { id: 'as20', setNumber: 3, type: 'normal', weightKg: 14, reps: 12, completed: true, rpe: 9 }
+          ]
+        }
+      ]
+    },
+
+    // 3. Session 3: ~3.8 days ago - Lower Body Compound Overload (YELLOW - Moderate Recovery)
+    {
+      id: 'alex_showcase_legs_4d',
+      name: 'Lower Body Compound Loading',
+      startedAt: new Date(now - 3.8 * dayMs - 4500000).toISOString(),
+      completedAt: new Date(now - 3.8 * dayMs).toISOString(),
+      durationSeconds: 4500,
+      notes: 'Deep back squats and Romanian deadlifts. Quads and gluteals in active recovery.',
+      totalVolumeKg: 4950,
+      totalSets: 9,
+      musclesTrained: ['quadriceps', 'gluteus', 'hamstrings', 'adductors'],
+      rpeAverage: 8.8,
+      exercises: [
+        {
+          id: 'alex_ex_8',
+          exerciseId: 'barbell_back_squat',
+          exerciseName: 'Barbell Back Squat',
+          notes: 'Below parallel with explosive drive',
+          sets: [
+            { id: 'as21', setNumber: 1, type: 'normal', weightKg: 115, reps: 8, completed: true, rpe: 8 },
+            { id: 'as22', setNumber: 2, type: 'normal', weightKg: 120, reps: 6, completed: true, rpe: 8.5 },
+            { id: 'as23', setNumber: 3, type: 'normal', weightKg: 125, reps: 6, completed: true, rpe: 9 }
+          ]
+        },
+        {
+          id: 'alex_ex_9',
+          exerciseId: 'romanian_deadlift',
+          exerciseName: 'Romanian Deadlift',
+          notes: 'Hinging at hips for intense hamstring loading',
+          sets: [
+            { id: 'as24', setNumber: 1, type: 'normal', weightKg: 100, reps: 10, completed: true, rpe: 8 },
+            { id: 'as25', setNumber: 2, type: 'normal', weightKg: 110, reps: 8, completed: true, rpe: 8.5 },
+            { id: 'as26', setNumber: 3, type: 'normal', weightKg: 110, reps: 8, completed: true, rpe: 8.5 }
+          ]
+        },
+        {
+          id: 'alex_ex_10',
+          exerciseId: 'leg_extension',
+          exerciseName: 'Leg Extension',
+          notes: 'Terminal knee extension quad burn',
+          sets: [
+            { id: 'as27', setNumber: 1, type: 'normal', weightKg: 70, reps: 12, completed: true, rpe: 8 },
+            { id: 'as28', setNumber: 2, type: 'normal', weightKg: 80, reps: 10, completed: true, rpe: 8.5 },
+            { id: 'as29', setNumber: 3, type: 'normal', weightKg: 80, reps: 10, completed: true, rpe: 9 }
+          ]
+        }
+      ]
+    },
+
+    // 4. Session 4: ~5.8 days ago - Calves, Core Stability & Accessories (GREEN - Fresh / Supercompensated)
+    {
+      id: 'alex_showcase_core_arms_6d',
+      name: 'Arms, Calves & Core Priming',
+      startedAt: new Date(now - 5.8 * dayMs - 3100000).toISOString(),
+      completedAt: new Date(now - 5.8 * dayMs).toISOString(),
+      durationSeconds: 3100,
+      notes: 'High-rep calf and abdominal wall priming. Triceps and core are now supercompensated and ready for direct work.',
+      totalVolumeKg: 2420,
+      totalSets: 9,
+      musclesTrained: ['triceps', 'calves', 'rectus_abdominis', 'obliques'],
+      rpeAverage: 7.9,
+      exercises: [
+        {
+          id: 'alex_ex_11',
+          exerciseId: 'triceps_rope_pushdown',
+          exerciseName: 'Cable Triceps Rope Pushdown',
+          notes: 'Flaring rope at lockout',
+          sets: [
+            { id: 'as30', setNumber: 1, type: 'normal', weightKg: 30, reps: 12, completed: true, rpe: 7.5 },
+            { id: 'as31', setNumber: 2, type: 'normal', weightKg: 35, reps: 10, completed: true, rpe: 8 },
+            { id: 'as32', setNumber: 3, type: 'normal', weightKg: 35, reps: 10, completed: true, rpe: 8 }
+          ]
+        },
+        {
+          id: 'alex_ex_12',
+          exerciseId: 'standing_calf_raise',
+          exerciseName: 'Standing Calf Raise',
+          notes: 'Full plantarflexion hold with deep stretch',
+          sets: [
+            { id: 'as33', setNumber: 1, type: 'normal', weightKg: 75, reps: 15, completed: true, rpe: 8 },
+            { id: 'as34', setNumber: 2, type: 'normal', weightKg: 85, reps: 12, completed: true, rpe: 8 },
+            { id: 'as35', setNumber: 3, type: 'normal', weightKg: 85, reps: 12, completed: true, rpe: 8.5 }
+          ]
+        },
+        {
+          id: 'alex_ex_13',
+          exerciseId: 'hanging_leg_raise',
+          exerciseName: 'Hanging Leg Raise',
+          notes: 'Posterior pelvic tilt without swinging',
+          sets: [
+            { id: 'as36', setNumber: 1, type: 'normal', weightKg: 0, reps: 12, completed: true, rpe: 7.5 },
+            { id: 'as37', setNumber: 2, type: 'normal', weightKg: 0, reps: 12, completed: true, rpe: 8 },
+            { id: 'as38', setNumber: 3, type: 'normal', weightKg: 0, reps: 12, completed: true, rpe: 8 }
+          ]
+        }
+      ]
+    }
+  ];
+}
+
+export function getGuestShowcasePersonalRecords(): PersonalRecord[] {
+  return [
+    {
+      exerciseId: 'barbell_back_squat',
+      exerciseName: 'Barbell Back Squat',
+      maxWeightKg: 125,
+      maxReps: 6,
+      achievedAt: new Date(Date.now() - 3.8 * 86400000).toISOString(),
+      workoutId: 'alex_showcase_legs_4d',
+      estimated1RMKg: 150
+    },
+    {
+      exerciseId: 'barbell_bench_press',
+      exerciseName: 'Barbell Bench Press (Flat)',
+      maxWeightKg: 100,
+      maxReps: 8,
+      achievedAt: new Date(Date.now() - 1.0 * 86400000).toISOString(),
+      workoutId: 'alex_showcase_push_yesterday',
+      estimated1RMKg: 126.7
+    },
+    {
+      exerciseId: 'romanian_deadlift',
+      exerciseName: 'Romanian Deadlift',
+      maxWeightKg: 110,
+      maxReps: 8,
+      achievedAt: new Date(Date.now() - 3.8 * 86400000).toISOString(),
+      workoutId: 'alex_showcase_legs_4d',
+      estimated1RMKg: 139.3
+    },
+    {
+      exerciseId: 'lat_pulldown',
+      exerciseName: 'Lat Pulldown',
+      maxWeightKg: 85,
+      maxReps: 8,
+      achievedAt: new Date(Date.now() - 2.1 * 86400000).toISOString(),
+      workoutId: 'alex_showcase_pull_2d',
+      estimated1RMKg: 107.7
+    },
+    {
+      exerciseId: 'incline_dumbbell_press',
+      exerciseName: 'Incline Dumbbell Bench Press',
+      maxWeightKg: 36,
+      maxReps: 8,
+      achievedAt: new Date(Date.now() - 1.0 * 86400000).toISOString(),
+      workoutId: 'alex_showcase_push_yesterday',
+      estimated1RMKg: 45.6
     }
   ];
 }

@@ -16,7 +16,9 @@ import {
   DEFAULT_USER_PROFILE,
   WORKOUT_TEMPLATES,
   getSeedWorkouts,
-  SEED_PERSONAL_RECORDS
+  SEED_PERSONAL_RECORDS,
+  getGuestShowcaseWorkouts,
+  getGuestShowcasePersonalRecords
 } from './src/lib/seedData';
 import {
   calculateMuscleExposures,
@@ -30,6 +32,15 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// Prevent aggressive browser/mobile proxy caching on all API endpoints
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  next();
+});
 
 // Validation to ensure templates, individual exercises, or corrupt entries never masquerade as logged workouts
 function isGenuineWorkout(w: any): boolean {
@@ -149,9 +160,13 @@ const userAccounts = new Map<string, UserAccount>();
 const activeSessions = new Map<string, { userId: string; createdAt: number }>();
 
 function seedPrimaryUserAccounts() {
-  // 1. Guaranteed Guest Demo Account for interactive preview & onboarding
+  // 1. Guaranteed Guest Demo Account for interactive preview & onboarding (Alex Vance)
+  // Configured with high-impact, multi-day split that produces a vivid, colorful recovery heatmap
   const guestId = 'usr_guest_demo';
   let guestAccount = userAccounts.get(guestId);
+  const showcaseWorkouts = getGuestShowcaseWorkouts(new Date());
+  const showcasePRs = getGuestShowcasePersonalRecords();
+
   if (!guestAccount) {
     const guestProfile: UserProfile = {
       id: `prof_${guestId}`,
@@ -173,9 +188,9 @@ function seedPrimaryUserAccounts() {
       password: 'guest_demo_password',
       createdAt: new Date().toISOString(),
       profile: guestProfile,
-      workouts: getSeedWorkouts(),
+      workouts: showcaseWorkouts,
       templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}` })),
-      personalRecords: [...SEED_PERSONAL_RECORDS],
+      personalRecords: showcasePRs,
       deletedWorkoutIds: []
     };
 
@@ -184,14 +199,21 @@ function seedPrimaryUserAccounts() {
     if (!Array.isArray(guestAccount.deletedWorkoutIds)) {
       guestAccount.deletedWorkoutIds = [];
     }
-    if (!Array.isArray(guestAccount.workouts) || guestAccount.workouts.length === 0) {
-      guestAccount.workouts = getSeedWorkouts();
-      guestAccount.personalRecords = [...SEED_PERSONAL_RECORDS];
-    }
+    // Refresh showcase workouts and PRs for Alex Vance to guarantee vibrant colorful recovery diagram
+    guestAccount.workouts = showcaseWorkouts;
+    guestAccount.personalRecords = showcasePRs;
   }
+
+  // Purge any lingering owner references
+  userAccounts.delete('owner');
+  userAccounts.delete('usr_owner');
 
   // Ensure loaded user accounts have their PRs maintained, invalid workouts removed, and names normalized
   for (const account of userAccounts.values()) {
+    if (account.id === 'owner' || account.id === 'usr_owner' || account.email === 'owner@trainingintel.app') {
+      userAccounts.delete(account.id);
+      continue;
+    }
     if (account.email) {
       account.username = formatAthleteName(account.username, account.email);
       if (account.profile) {
@@ -209,7 +231,7 @@ function seedPrimaryUserAccounts() {
       account.workouts = account.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
     }
     if (account.workouts.length === 0) {
-      account.workouts = getSeedWorkouts().filter(w => !delSet.has(w.id));
+      account.workouts = (account.id === guestId ? showcaseWorkouts : getSeedWorkouts()).filter(w => !delSet.has(w.id));
     }
     if (account.id !== guestId) {
       rebuildPersonalRecordsForUser(account);
@@ -237,6 +259,9 @@ function loadDatabaseFromDisk() {
             if (Array.isArray(data.users) && data.users.length > 0) {
               for (const u of data.users) {
                 if (!u || !u.id) continue;
+                // Never restore owner account
+                if (u.id === 'owner' || u.id === 'usr_owner' || u.email === 'owner@trainingintel.app') continue;
+
                 if (!Array.isArray(u.deletedWorkoutIds)) u.deletedWorkoutIds = [];
                 if (!Array.isArray(u.workouts)) u.workouts = [];
                 const delSet = new Set(u.deletedWorkoutIds);
@@ -278,7 +303,7 @@ function loadDatabaseFromDisk() {
               }
               if (Array.isArray(data.sessions)) {
                 for (const s of data.sessions) {
-                  if (s && s.token && s.userId) {
+                  if (s && s.token && s.userId && s.userId !== 'owner' && s.userId !== 'usr_owner') {
                     activeSessions.set(s.token, { userId: s.userId, createdAt: s.createdAt || Date.now() });
                   }
                 }
@@ -477,9 +502,13 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
       preferredUnit: 'kg',
       focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
     },
-    workouts: getSeedWorkouts(),
+    workouts: (userAccounts.get('usr_karam_owner')?.workouts && userAccounts.get('usr_karam_owner')!.workouts.length > 0)
+      ? JSON.parse(JSON.stringify(userAccounts.get('usr_karam_owner')!.workouts))
+      : getSeedWorkouts(),
     templates: WORKOUT_TEMPLATES,
-    personalRecords: [...SEED_PERSONAL_RECORDS],
+    personalRecords: (userAccounts.get('usr_karam_owner')?.personalRecords && userAccounts.get('usr_karam_owner')!.personalRecords.length > 0)
+      ? JSON.parse(JSON.stringify(userAccounts.get('usr_karam_owner')!.personalRecords))
+      : [...SEED_PERSONAL_RECORDS],
     deletedWorkoutIds: []
   };
   userAccounts.set(id, newAccount);
@@ -495,30 +524,19 @@ function getUserFromRequest(req: express.Request): UserAccount | null {
   const customUserEmail = (req.headers['x-user-email'] as string) || (req.query.email as string);
   const cleanEmail = customUserEmail && customUserEmail.trim() ? customUserEmail.trim().toLowerCase() : '';
 
-  // 0. High priority: Match by explicit email across all loaded accounts
-  if (cleanEmail) {
-    for (const u of userAccounts.values()) {
-      if (u.email && u.email.toLowerCase() === cleanEmail) {
-        if (customUserId && customUserId.trim()) {
-          userAccounts.set(customUserId.trim(), u);
-        }
-        return u;
-      }
-    }
-  }
-
-  // 1. Check Bearer Token
+  // 1. Check Bearer Token FIRST (Highest priority: active session)
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7).trim();
     if (token) {
+      // Check active sessions map
       const session = activeSessions.get(token);
       if (session && userAccounts.has(session.userId)) {
-        const user = userAccounts.get(session.userId)!;
-        if (cleanEmail && (!user.email || user.email.endsWith('@trainingintel.app'))) {
-          user.email = cleanEmail;
-          saveDatabaseToDisk();
-        }
-        return user;
+        return userAccounts.get(session.userId)!;
+      }
+      // Check for guest demo token
+      if (token.includes('guest') || token.includes('usr_guest_demo')) {
+        const guest = userAccounts.get('usr_guest_demo');
+        if (guest) return guest;
       }
       // Parse userId prefix: tok_${userId}_${timestamp}_...
       if (token.startsWith('tok_')) {
@@ -527,12 +545,12 @@ function getUserFromRequest(req: express.Request): UserAccount | null {
         for (const [uid, user] of userAccounts.entries()) {
           if (token.substring(4).startsWith(uid)) {
             activeSessions.set(token, { userId: uid, createdAt: Date.now() });
-            if (cleanEmail && (!user.email || user.email.endsWith('@trainingintel.app'))) {
-              user.email = cleanEmail;
-              saveDatabaseToDisk();
-            }
             return user;
           }
+        }
+        if (candidateUid && userAccounts.has(candidateUid)) {
+          activeSessions.set(token, { userId: candidateUid, createdAt: Date.now() });
+          return userAccounts.get(candidateUid)!;
         }
         if (candidateUid && candidateUid !== 'guest') {
           const newAcc = createOrRestoreUserAccount(candidateUid, customUserEmail);
@@ -540,23 +558,11 @@ function getUserFromRequest(req: express.Request): UserAccount | null {
           return newAcc;
         }
       }
-      // Check if raw token is a Firebase UID or custom user ID
-      if (token.length > 5 && !token.includes(' ') && !token.toLowerCase().includes('guest')) {
+      // Direct user ID / Firebase UID as token
+      if (token.length > 5 && !token.includes(' ')) {
         if (userAccounts.has(token)) {
-          const user = userAccounts.get(token)!;
-          if (cleanEmail && (!user.email || user.email.endsWith('@trainingintel.app'))) {
-            user.email = cleanEmail;
-            saveDatabaseToDisk();
-          }
-          return user;
+          return userAccounts.get(token)!;
         }
-        const newAcc = createOrRestoreUserAccount(token, customUserEmail);
-        activeSessions.set(token, { userId: token, createdAt: Date.now() });
-        return newAcc;
-      }
-      if (token.toLowerCase().includes('guest')) {
-        const guest = userAccounts.get('usr_guest_demo');
-        if (guest) return guest;
       }
     }
   }
@@ -564,25 +570,34 @@ function getUserFromRequest(req: express.Request): UserAccount | null {
   // 2. Check Explicit User ID Header / Query
   if (customUserId && customUserId.trim()) {
     const uid = customUserId.trim();
+    // Guest demo reviewer account (Alex Vance)
+    if (uid === 'usr_guest_demo') {
+      const guest = userAccounts.get('usr_guest_demo');
+      if (guest) return guest;
+    }
+    // Guarantee that generic local browser sessions link to owner's shared logbook (Karam)
+    if (uid === 'usr_athlete_local' || uid === 'usr_default') {
+      const owner = userAccounts.get('usr_karam_owner');
+      if (owner) return owner;
+    }
     if (userAccounts.has(uid)) {
-      const u = userAccounts.get(uid)!;
-      if (cleanEmail && (!u.email || u.email.endsWith('@trainingintel.app'))) {
-        u.email = cleanEmail;
-        saveDatabaseToDisk();
-      }
-      return u;
+      return userAccounts.get(uid)!;
     }
     return createOrRestoreUserAccount(uid, customUserEmail);
   }
 
-  // 3. Check Explicit Email Header / Query (auto-provision container if brand new)
+  // 3. Match by explicit email across all loaded accounts (read-only, never mutate userAccounts keys)
   if (cleanEmail) {
+    for (const u of userAccounts.values()) {
+      if (u.email && u.email.toLowerCase() === cleanEmail) {
+        return u;
+      }
+    }
     const generatedId = `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
     return createOrRestoreUserAccount(generatedId, cleanEmail);
   }
 
-  // 4. Default: When no specific identity is requested (e.g. fresh mobile browser session opening the app),
-  // return the registered athlete owner account (usr_karam_owner) so mobile and desktop share the exact same training logbook!
+  // 4. Default: When no specific identity is requested, return registered athlete owner account (usr_karam_owner)
   const owner = userAccounts.get('usr_karam_owner') || Array.from(userAccounts.values()).find(u => u.id !== 'usr_guest_demo');
   if (owner) return owner;
 
@@ -953,16 +968,18 @@ app.get('/api/auth/me', (req, res) => {
 
 // 4. Get Available Accounts for quick switching
 app.get('/api/auth/users', (req, res) => {
-  const list = Array.from(userAccounts.values()).map(u => ({
-    id: u.id,
-    email: u.email,
-    username: formatAthleteName(u.username, u.email),
-    primaryGoal: u.profile.primaryGoal,
-    experienceLevel: u.profile.experienceLevel,
-    workoutCount: u.workouts.length,
-    templateCount: u.templates.length,
-    createdAt: u.createdAt
-  }));
+  const list = Array.from(userAccounts.values())
+    .filter(u => u.id !== 'owner' && u.id !== 'usr_owner' && u.email !== 'owner@trainingintel.app')
+    .map(u => ({
+      id: u.id,
+      email: u.email,
+      username: formatAthleteName(u.username, u.email),
+      primaryGoal: u.profile.primaryGoal,
+      experienceLevel: u.profile.experienceLevel,
+      workoutCount: u.workouts.length,
+      templateCount: u.templates.length,
+      createdAt: u.createdAt
+    }));
   res.json(list);
 });
 
@@ -978,6 +995,11 @@ app.post('/api/auth/switch', (req, res) => {
   target.username = formatAthleteName(target.username, target.email);
   if (target.profile) {
     target.profile.name = formatAthleteName(target.profile.name, target.email);
+  }
+
+  if (target.id === 'usr_guest_demo') {
+    target.workouts = getGuestShowcaseWorkouts(new Date());
+    target.personalRecords = getGuestShowcasePersonalRecords();
   }
 
   const token = `tok_${target.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -1037,19 +1059,17 @@ app.post('/api/auth/guest', (req, res) => {
         password: 'guest_demo_password',
         createdAt: new Date().toISOString(),
         profile: guestProfile,
-        workouts: getSeedWorkouts(),
+        workouts: getGuestShowcaseWorkouts(new Date()),
         deletedWorkoutIds: [],
         templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}` })),
-        personalRecords: [...SEED_PERSONAL_RECORDS]
+        personalRecords: getGuestShowcasePersonalRecords()
       };
 
       userAccounts.set(guestId, guestAccount);
     } else {
-      // Ensure seed workouts exist if account was somehow cleared
-      if (!guestAccount.workouts || guestAccount.workouts.length === 0) {
-        guestAccount.workouts = getSeedWorkouts();
-        guestAccount.personalRecords = [...SEED_PERSONAL_RECORDS];
-      }
+      // Refresh with colorful showcase workouts for recruiters
+      guestAccount.workouts = getGuestShowcaseWorkouts(new Date());
+      guestAccount.personalRecords = getGuestShowcasePersonalRecords();
     }
 
     const token = `tok_${guestAccount.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -1173,7 +1193,66 @@ app.get('/api/workouts', (req, res) => {
   if (!Array.isArray(user.workouts)) {
     user.workouts = [];
   }
+
+  // Alex Vance (Guest Reviewer demo account): guaranteed vibrant colorful showcase workouts
+  if (user.id === 'usr_guest_demo') {
+    if (!Array.isArray(user.workouts) || user.workouts.length === 0) {
+      user.workouts = getGuestShowcaseWorkouts(new Date());
+      user.personalRecords = getGuestShowcasePersonalRecords();
+    }
+    const delSet = new Set(user.deletedWorkoutIds || []);
+    const alexWorkouts = user.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+    const sorted = [...alexWorkouts].sort((a, b) => {
+      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+      return tB - tA;
+    });
+    res.json(sorted);
+    return;
+  }
+
   const delSet = new Set(user.deletedWorkoutIds || []);
+
+  // Bi-directional cross-sync: ensure master owner workouts are unified across mobile and desktop
+  const owner = userAccounts.get('usr_karam_owner');
+  if (owner && Array.isArray(owner.workouts) && owner.workouts.length > 0) {
+    const ownerWorkoutIds = new Set(owner.workouts.filter(ow => isGenuineWorkout(ow)).map(ow => ow.id));
+    // Never allow tombstones to delete master owner workouts (desktop is the source of truth)
+    for (const oId of ownerWorkoutIds) {
+      delSet.delete(oId);
+    }
+    if (user.deletedWorkoutIds) {
+      user.deletedWorkoutIds = user.deletedWorkoutIds.filter(id => !ownerWorkoutIds.has(id));
+    }
+
+    const oMap = new Map<string, Workout>();
+    for (const ow of owner.workouts) {
+      if (ow && ow.id && isGenuineWorkout(ow)) {
+        oMap.set(ow.id, ow);
+      }
+    }
+    for (const w of user.workouts) {
+      if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) {
+        const exist = oMap.get(w.id);
+        if (!exist) {
+          oMap.set(w.id, w);
+        } else {
+          const exSets = exist.totalSets || (exist.exercises ? exist.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+          const wSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+          if (wSets >= exSets || w.completedAt) {
+            oMap.set(w.id, { ...exist, ...w });
+          }
+        }
+      }
+    }
+    const unified = Array.from(oMap.values());
+    user.workouts = [...unified];
+    if (user.id !== 'usr_karam_owner') {
+      owner.workouts = [...unified];
+      rebuildPersonalRecordsForUser(owner);
+    }
+  }
+
   user.workouts = user.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
   
   // Sort newest first safely without NaN bugs
@@ -1269,9 +1348,9 @@ app.post('/api/workouts', (req, res) => {
     user.workouts.unshift(workout);
   }
 
-  // Cross-sync: If saved under guest or alternate identity, ensure owner account also receives the workout
+  // Cross-sync: If saved under alternate local athlete identity, ensure owner account also receives the workout (Alex guest showcase is kept cleanly isolated)
   const ownerAcc = userAccounts.get('usr_karam_owner');
-  if (ownerAcc && user.id !== 'usr_karam_owner') {
+  if (ownerAcc && user.id !== 'usr_karam_owner' && user.id !== 'usr_guest_demo') {
     const oIdx = ownerAcc.workouts.findIndex(w => w.id === workout.id);
     if (oIdx >= 0) {
       ownerAcc.workouts[oIdx] = workout;
@@ -1483,14 +1562,24 @@ app.post('/api/workouts/sync', (req, res) => {
     user.deletedWorkoutIds = [];
   }
 
-  // 1. Ingest any client-side tombstones
+  const ownerAcc = userAccounts.get('usr_karam_owner');
+  const isGuest = user.id === 'usr_guest_demo';
+  const ownerWorkoutIds = isGuest
+    ? new Set<string>()
+    : new Set((ownerAcc?.workouts || []).filter(w => isGenuineWorkout(w)).map(w => w.id));
+
+  // 1. Ingest any client-side tombstones (except for workouts present on the owner account / desktop)
   const incomingDeleted: string[] = Array.isArray(req.body?.deletedWorkoutIds) ? req.body.deletedWorkoutIds : [];
   for (const did of incomingDeleted) {
-    if (typeof did === 'string' && did && !user.deletedWorkoutIds.includes(did)) {
+    if (typeof did === 'string' && did && !ownerWorkoutIds.has(did) && !user.deletedWorkoutIds.includes(did)) {
       user.deletedWorkoutIds.push(did);
     }
   }
 
+  // Ensure master owner workouts are never suppressed
+  if (!isGuest) {
+    user.deletedWorkoutIds = user.deletedWorkoutIds.filter(did => !ownerWorkoutIds.has(did));
+  }
   const deletedSet = new Set(user.deletedWorkoutIds);
 
   // 2. Clean current server workouts against tombstones and non-genuine objects
@@ -1528,24 +1617,33 @@ app.post('/api/workouts/sync', (req, res) => {
 
   user.workouts = Array.from(existingMap.values());
 
-  // Cross-sync: Ensure owner account also receives all synchronized genuine workouts
-  const ownerAcc = userAccounts.get('usr_karam_owner');
-  if (ownerAcc && user.id !== 'usr_karam_owner') {
+  // Bi-directional cross-sync: Ensure owner account and current user both receive the full union of synchronized genuine workouts
+  // (Only applies to Karam's own accounts/sessions; NEVER to Alex Vance guest showcase)
+  if (ownerAcc && !isGuest) {
     const oMap = new Map<string, Workout>();
     for (const w of ownerAcc.workouts) {
-      if (w && w.id && !deletedSet.has(w.id)) oMap.set(w.id, w);
+      if (w && w.id && !deletedSet.has(w.id) && isGenuineWorkout(w)) oMap.set(w.id, w);
     }
     for (const w of user.workouts) {
-      if (w && w.id && !deletedSet.has(w.id) && !oMap.has(w.id)) {
-        oMap.set(w.id, w);
+      if (w && w.id && !deletedSet.has(w.id) && isGenuineWorkout(w)) {
+        const exist = oMap.get(w.id);
+        if (!exist) {
+          oMap.set(w.id, w);
+        } else {
+          const eSets = exist.totalSets || (exist.exercises ? exist.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+          const wSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+          if (wSets >= eSets || w.completedAt) oMap.set(w.id, { ...exist, ...w });
+        }
       }
     }
-    ownerAcc.workouts = Array.from(oMap.values());
-    ownerAcc.workouts.sort((a, b) => {
+    const masterList = Array.from(oMap.values());
+    masterList.sort((a, b) => {
       const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
       const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
       return tB - tA;
     });
+    user.workouts = [...masterList];
+    ownerAcc.workouts = [...masterList];
     rebuildPersonalRecordsForUser(ownerAcc);
   }
 

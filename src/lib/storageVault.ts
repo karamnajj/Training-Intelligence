@@ -116,6 +116,19 @@ export function addDeletedWorkoutIds(ids: string[]): void {
   idbSet(LS_KEYS.DELETED_WORKOUTS, arr).catch(() => {});
 }
 
+export function removeDeletedWorkoutId(id: string): void {
+  if (!id) return;
+  const set = getDeletedWorkoutIds();
+  if (set.has(id)) {
+    set.delete(id);
+    const arr = Array.from(set);
+    try {
+      localStorage.setItem(LS_KEYS.DELETED_WORKOUTS, JSON.stringify(arr));
+    } catch {}
+    idbSet(LS_KEYS.DELETED_WORKOUTS, arr).catch(() => {});
+  }
+}
+
 function openIndexedDB(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !window.indexedDB) {
@@ -186,13 +199,22 @@ async function idbSet(key: string, val: any): Promise<boolean> {
 function getActiveUserStorageKey(baseKey: string): string {
   try {
     const saved = localStorage.getItem('training_intel_user_id');
+    // If guest demo, return its dedicated isolated key
+    if (saved === 'usr_guest_demo') {
+      return `${baseKey}_usr_guest_demo`;
+    }
+    // If generic local demo or not set, bind to owner key
+    if (!saved || saved === 'usr_athlete_local' || saved === 'usr_default') {
+      return `${baseKey}_usr_karam_owner`;
+    }
     if (saved && saved.trim()) return `${baseKey}_${saved.trim()}`;
     const token = localStorage.getItem('training_intel_token');
     if (token && token.trim()) {
+      if (token.includes('guest')) return `${baseKey}_usr_guest_demo`;
       return `${baseKey}_${token.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32)}`;
     }
   } catch {}
-  return `${baseKey}_default`;
+  return `${baseKey}_usr_karam_owner`;
 }
 
 export const storageVault = {
@@ -203,7 +225,19 @@ export const storageVault = {
     // Guarantee no non-genuine or deleted workouts enter the vault
     const cleanList = (workouts || []).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
 
-    // Maintain unified master collection: union of existing master and incoming cleanList
+    // For Guest Demo (Alex Vance), maintain completely isolated storage
+    if (k === 'workouts_usr_guest_demo') {
+      try {
+        localStorage.setItem(k, JSON.stringify(cleanList));
+      } catch (e) {
+        console.warn('[StorageVault] LocalStorage write notice:', e);
+      }
+      await idbSet(k, cleanList);
+      this.markSyncTimestamp();
+      return;
+    }
+
+    // Maintain unified master collection for Owner / authenticated users
     let masterUnified = [...cleanList];
     try {
       const rawMaster = localStorage.getItem(LS_KEYS.MASTER_WORKOUTS);
@@ -244,25 +278,31 @@ export const storageVault = {
 
   async saveWorkouts(incomingWorkouts: Workout[], replace = false): Promise<void> {
     const delSet = getDeletedWorkoutIds();
-    const validIncoming = (incomingWorkouts || []).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+    // If incoming workouts contain any id that was mistakenly in delSet, un-tombstone it
+    for (const inW of incomingWorkouts || []) {
+      if (inW && inW.id && isGenuineWorkout(inW) && delSet.has(inW.id)) {
+        removeDeletedWorkoutId(inW.id);
+        delSet.delete(inW.id);
+      }
+    }
 
-    const existing = await this.getWorkouts();
+    const validIncoming = (incomingWorkouts || []).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
     const map = new Map<string, Workout>();
 
-    // 1. Load existing safe workouts (never discard previous workouts unless explicitly deleted)
+    // Always preserve existing genuine workouts that are not in delSet
+    const existing = await this.getWorkouts();
     for (const w of existing) {
       if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) {
         map.set(w.id, w);
       }
     }
 
-    // 2. Merge incoming workouts: keep the richer/newer version
+    // Merge incoming workouts: keep the richer/newer version
     for (const inW of validIncoming) {
       const curr = map.get(inW.id);
       if (!curr) {
         map.set(inW.id, inW);
       } else {
-        // If incoming has exercises or more sets, prefer incoming
         const currSets = curr.totalSets || (curr.exercises ? curr.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
         const inSets = inW.totalSets || (inW.exercises ? inW.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
         if (inSets >= currSets || inW.completedAt) {
@@ -297,70 +337,67 @@ export const storageVault = {
     const map = new Map<string, Workout>();
     const k = getActiveUserStorageKey('workouts');
 
-    // Source 1: IndexedDB Master Vault
-    const idbMaster = await idbGet<Workout[]>(LS_KEYS.MASTER_WORKOUTS);
-    if (Array.isArray(idbMaster)) {
-      for (const w of idbMaster) {
-        if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) {
-          map.set(w.id, w);
-        }
-      }
-    }
-
-    // Source 2: IndexedDB Active User Key
-    const idbActive = await idbGet<Workout[]>(k);
-    if (Array.isArray(idbActive)) {
-      for (const w of idbActive) {
-        if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id) && !map.has(w.id)) {
-          map.set(w.id, w);
-        }
-      }
-    }
-
-    // Source 3: LocalStorage Master Key
-    try {
-      const rawMaster = localStorage.getItem(LS_KEYS.MASTER_WORKOUTS);
-      if (rawMaster) {
-        const parsed = JSON.parse(rawMaster);
-        if (Array.isArray(parsed)) {
-          for (const w of parsed) {
-            if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id) && !map.has(w.id)) {
+    // Helper to safely ingest workouts from any source
+    const ingest = (list: any) => {
+      if (Array.isArray(list)) {
+        for (const w of list) {
+          if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) {
+            const curr = map.get(w.id);
+            if (!curr) {
               map.set(w.id, w);
+            } else {
+              const currSets = curr.totalSets || (curr.exercises ? curr.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+              const wSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
+              if (wSets >= currSets || w.completedAt) {
+                map.set(w.id, { ...curr, ...w });
+              }
             }
           }
         }
       }
-    } catch {}
+    };
 
-    // Source 4: LocalStorage Active Key
+    // Source 1: If active user is Guest Demo (Alex Vance), load strictly from isolated guest cache
+    if (k === 'workouts_usr_guest_demo') {
+      ingest(await idbGet<Workout[]>('workouts_usr_guest_demo'));
+      try {
+        const rawGuest = localStorage.getItem('workouts_usr_guest_demo');
+        if (rawGuest) ingest(JSON.parse(rawGuest));
+      } catch {}
+      const results = Array.from(map.values());
+      results.sort((a, b) => {
+        const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+        const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+        return tB - tA;
+      });
+      return results;
+    }
+
+    // Source 2: Active User & Owner Vaults
+    ingest(await idbGet<Workout[]>(k));
+    ingest(await idbGet<Workout[]>('workouts_usr_karam_owner'));
+
     try {
       const rawActive = localStorage.getItem(k);
-      if (rawActive) {
-        const parsed = JSON.parse(rawActive);
-        if (Array.isArray(parsed)) {
-          for (const w of parsed) {
-            if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id) && !map.has(w.id)) {
-              map.set(w.id, w);
-            }
-          }
-        }
-      }
+      if (rawActive) ingest(JSON.parse(rawActive));
+    } catch {}
+    try {
+      const rawOwner = localStorage.getItem('workouts_usr_karam_owner');
+      if (rawOwner) ingest(JSON.parse(rawOwner));
     } catch {}
 
-    // Source 5: LocalStorage Legacy Cache Key
-    try {
-      const rawLegacy = localStorage.getItem(LS_KEYS.WORKOUTS);
-      if (rawLegacy) {
-        const parsed = JSON.parse(rawLegacy);
-        if (Array.isArray(parsed)) {
-          for (const w of parsed) {
-            if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id) && !map.has(w.id)) {
-              map.set(w.id, w);
-            }
-          }
-        }
-      }
-    } catch {}
+    // Source 3: Fallback to Master Vault / Legacy only if user vault is empty
+    if (map.size === 0) {
+      ingest(await idbGet<Workout[]>(LS_KEYS.MASTER_WORKOUTS));
+      try {
+        const rawMaster = localStorage.getItem(LS_KEYS.MASTER_WORKOUTS);
+        if (rawMaster) ingest(JSON.parse(rawMaster));
+      } catch {}
+      try {
+        const rawLegacy = localStorage.getItem(LS_KEYS.WORKOUTS);
+        if (rawLegacy) ingest(JSON.parse(rawLegacy));
+      } catch {}
+    }
 
     const results = Array.from(map.values());
     results.sort((a, b) => {
@@ -457,7 +494,7 @@ export const storageVault = {
       if (typeof window !== 'undefined' && window.localStorage) {
         for (let i = 0; i < localStorage.length; i++) {
           const lKey = localStorage.key(i);
-          if (lKey && (lKey.includes('workout') || lKey.includes('training_intel')) && !lKey.includes('template')) {
+          if (lKey && (lKey.includes('workout') || lKey.includes('training_intel')) && !lKey.includes('template') && !lKey.includes('deleted')) {
             try {
               const val = localStorage.getItem(lKey);
               if (val && val.startsWith('[')) {
@@ -468,7 +505,9 @@ export const storageVault = {
                     if (!item || !item.id) return false;
                     if (!isGenuineWorkout(item) || item.id.startsWith('template_') || item.id.startsWith('tpl_')) {
                       dirty = true;
-                      purgedIds.push(item.id);
+                      if (typeof item.id === 'string' && (item.id.startsWith('template_') || item.id.startsWith('tpl_'))) {
+                        purgedIds.push(item.id);
+                      }
                       return false;
                     }
                     return true;

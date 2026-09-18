@@ -34,124 +34,142 @@ export const MUSCLE_CATALOG: Record<MuscleId, MuscleInfo> = {
   },
   pectoralis_major: {
     id: 'pectoralis_major',
-    name: 'Pectoralis Major (General)',
+    name: 'Chest (Pectoralis Major)',
     category: 'chest',
     view: 'front',
     description: 'Main chest muscle complex spanning clavicular, sternal, and abdominal heads.'
   },
   anterior_deltoid: {
     id: 'anterior_deltoid',
-    name: 'Anterior Deltoid',
+    name: 'Front Delts (Anterior Deltoid)',
     category: 'shoulders',
     view: 'front',
     description: 'Front shoulder muscle assisting in forward arm flexion and overhead pressing.'
   },
   lateral_deltoid: {
     id: 'lateral_deltoid',
-    name: 'Lateral Deltoid',
+    name: 'Side Delts (Lateral Deltoid)',
     category: 'shoulders',
     view: 'both',
-    description: 'Side shoulder muscle responsible for arm abduction creating shoulder width.'
+    description: 'Side shoulder muscle responsible for arm abduction creating shoulder width and 3D delts.'
   },
   posterior_deltoid: {
     id: 'posterior_deltoid',
-    name: 'Posterior Deltoid',
+    name: 'Rear Delts (Posterior Deltoid)',
     category: 'shoulders',
     view: 'back',
-    description: 'Rear shoulder muscle crucial for shoulder joint integrity and horizontal abduction.'
+    description: 'Rear shoulder muscle crucial for shoulder joint integrity, horizontal abduction, and posterior 3D caps.'
   },
   biceps: {
     id: 'biceps',
-    name: 'Biceps Brachii',
+    name: 'Biceps (Biceps Brachii)',
     category: 'arms',
     view: 'front',
-    description: 'Front arm muscle responsible for elbow flexion and forearm supination.'
+    description: 'Front arm muscle responsible for elbow flexion, forearm supination, and peak arm fullness.'
   },
   triceps: {
     id: 'triceps',
-    name: 'Triceps Brachii',
+    name: 'Triceps (Triceps Brachii)',
     category: 'arms',
     view: 'back',
-    description: 'Back arm muscle comprising three heads, responsible for elbow extension.'
+    description: 'Back arm muscle comprising lateral, long, and medial heads, responsible for elbow extension and 2/3 of arm size.'
   },
   forearms: {
     id: 'forearms',
-    name: 'Forearms & Grip',
+    name: 'Forearms (Brachioradialis & Flexors)',
     category: 'arms',
     view: 'front',
-    description: 'Flexors and extensors controlling wrist movement and gripping strength.'
+    description: 'Flexors, extensors, and brachioradialis controlling wrist movement and crushing grip strength.'
   },
   rectus_abdominis: {
     id: 'rectus_abdominis',
-    name: 'Rectus Abdominis',
+    name: 'Abs (Rectus Abdominis)',
     category: 'core',
     view: 'front',
-    description: 'Front core abdominal wall providing spinal flexion and anterior trunk stability.'
+    description: 'Front core abdominal six-pack wall providing spinal flexion and anterior trunk stability.'
   },
   obliques: {
     id: 'obliques',
-    name: 'Internal & External Obliques',
+    name: 'Obliques (Internal & External Obliques)',
     category: 'core',
     view: 'front',
-    description: 'Side core musculature driving trunk rotation and lateral flexion.'
+    description: 'Side core musculature driving trunk rotation, waist taper, and lateral flexion.'
   },
   trapezius: {
     id: 'trapezius',
-    name: 'Trapezius (Upper & Mid)',
+    name: 'Traps (Trapezius)',
     category: 'back',
     view: 'back',
-    description: 'Upper back and neck muscle controlling scapular elevation, retraction, and depression.'
+    description: 'Upper back and neck muscle controlling scapular elevation, shrugs, retraction, and yoke thickness.'
   },
   latissimus_dorsi: {
     id: 'latissimus_dorsi',
-    name: 'Latissimus Dorsi',
+    name: 'Lats (Latissimus Dorsi)',
     category: 'back',
     view: 'back',
-    description: 'Broadest muscle of the back, drawing the upper arm down and back (pulling movements).'
+    description: 'Broadest muscle of the back creating the classic V-taper wing span (pulling and rowing movements).'
   },
   spinal_erectors: {
     id: 'spinal_erectors',
-    name: 'Spinal Erectors (Lower Back)',
+    name: 'Lower Back (Spinal Erectors)',
     category: 'back',
     view: 'back',
-    description: 'Deep muscles running along the spine providing posture, trunk extension, and core bracing.'
+    description: 'Deep muscles running along the lumbar spine providing trunk extension, deadlift lockouts, and core bracing.'
   },
   gluteus: {
     id: 'gluteus',
-    name: 'Gluteus Maximus & Medius',
+    name: 'Glutes (Gluteus Maximus & Medius)',
     category: 'legs',
     view: 'back',
-    description: 'Primary hip extensors and stabilizers driving sprinting, squatting, and deadlifting power.'
+    description: 'Primary hip extensors and stabilizers driving sprinting, squatting, hip thrusting, and deadlifting power.'
   },
   quadriceps: {
     id: 'quadriceps',
-    name: 'Quadriceps',
+    name: 'Quads (Quadriceps Femoris)',
     category: 'legs',
     view: 'front',
-    description: 'Four-headed front thigh muscle group responsible for knee extension and squatting strength.'
+    description: 'Four-headed front thigh muscle group responsible for knee extension, squat depth, and leg sweep mass.'
   },
   hamstrings: {
     id: 'hamstrings',
-    name: 'Hamstrings',
+    name: 'Hamstrings (Biceps Femoris & Semitendinosus)',
     category: 'legs',
     view: 'back',
-    description: 'Posterior thigh muscles responsible for knee flexion and hip extension.'
+    description: 'Posterior thigh muscles responsible for knee flexion, RDL hip hinge power, and hamstring sweep.'
   },
   calves: {
     id: 'calves',
-    name: 'Gastrocnemius & Soleus',
+    name: 'Calves (Gastrocnemius & Soleus)',
     category: 'legs',
     view: 'both',
-    description: 'Lower leg muscles driving plantarflexion, jumping, and ankle stabilization.'
+    description: 'Lower leg muscles driving plantarflexion, jumping, diamond calf development, and ankle stabilization.'
   },
   adductors: {
     id: 'adductors',
-    name: 'Adductors (Inner Thigh)',
+    name: 'Inner Thigh (Adductor Complex)',
     category: 'legs',
     view: 'front',
-    description: 'Inner thigh muscles aiding hip adduction and deep squat stability.'
+    description: 'Inner thigh muscles providing hip adduction, deep squat stability, and inner leg fullness.'
   }
 };
+
+/**
+ * Returns whether a muscle belongs to the arm group (biceps, triceps, forearms).
+ */
+export function isArmMuscle(muscleId: MuscleId): boolean {
+  return muscleId === 'biceps' || muscleId === 'triceps' || muscleId === 'forearms';
+}
+
+/**
+ * Extracts the user-friendly bro science name before the bracketed scientific name.
+ * e.g. "Abs (Rectus Abdominis)" -> "Abs"
+ *      "Lower Back (Spinal Erectors)" -> "Lower Back"
+ */
+export function getMuscleBroName(nameOrId: string): string {
+  const catalogName = MUSCLE_CATALOG[nameOrId as MuscleId]?.name || nameOrId;
+  const beforeBracket = catalogName.split('(')[0].trim();
+  return beforeBracket || catalogName;
+}
 
 export const ALL_MUSCLE_IDS = Object.keys(MUSCLE_CATALOG) as MuscleId[];
 
@@ -273,6 +291,14 @@ export function calculateMuscleExposures(
       name: MUSCLE_CATALOG[muscleId].name,
       lastTrainedAt: null,
       daysSinceTraining: null,
+      lastDirectTrainedAt: null,
+      daysSinceDirectTraining: null,
+      lastIndirectTrainedAt: null,
+      daysSinceIndirectTraining: null,
+      directSets7d: 0,
+      indirectSets7d: 0,
+      hasDirectTrainingRecently: false,
+      isIndirectOnly: false,
       effectiveSets7d: 0,
       effectiveSets30d: 0,
       frequencyWeekly: 0,
@@ -368,10 +394,31 @@ export function calculateMuscleExposures(
         const target = result[muscleId];
         if (!target) continue;
 
+        const isDirect = contrib.role === 'PRIMARY';
+
         // Record last trained date
         if (!target.lastTrainedAt || new Date(target.lastTrainedAt).getTime() < workoutDate.getTime()) {
           target.lastTrainedAt = workoutDate.toISOString();
           target.daysSinceTraining = Math.floor(daysAgo);
+        }
+
+        // Track direct vs indirect training
+        if (isDirect) {
+          if (!target.lastDirectTrainedAt || new Date(target.lastDirectTrainedAt).getTime() < workoutDate.getTime()) {
+            target.lastDirectTrainedAt = workoutDate.toISOString();
+            target.daysSinceDirectTraining = Math.floor(daysAgo);
+          }
+          if (daysAgo <= 7) {
+            target.directSets7d = (target.directSets7d || 0) + workingSets;
+          }
+        } else {
+          if (!target.lastIndirectTrainedAt || new Date(target.lastIndirectTrainedAt).getTime() < workoutDate.getTime()) {
+            target.lastIndirectTrainedAt = workoutDate.toISOString();
+            target.daysSinceIndirectTraining = Math.floor(daysAgo);
+          }
+          if (daysAgo <= 7) {
+            target.indirectSets7d = (target.indirectSets7d || 0) + (workingSets * contrib.contributionFactor);
+          }
         }
 
         // Effective sets contribution
@@ -403,30 +450,98 @@ export function calculateMuscleExposures(
     }
   }
 
-  // Refine final states and recommendations for each muscle
+  // Refine final states and recovery recommendations for each muscle
   for (const muscleId of ALL_MUSCLE_IDS) {
     const data = result[muscleId]!;
     data.effectiveSets7d = Math.round(data.effectiveSets7d * 10) / 10;
     data.effectiveSets30d = Math.round(data.effectiveSets30d * 10) / 10;
+    data.directSets7d = Math.round((data.directSets7d || 0) * 10) / 10;
+    data.indirectSets7d = Math.round((data.indirectSets7d || 0) * 10) / 10;
     data.volumeScore = Math.min(100, Math.round(data.volumeScore));
     data.frequencyWeekly = Math.round((data.effectiveSets30d / 4.3) * 10) / 10;
     data.recentExercises = Array.from(muscleExerciseMap[muscleId].values());
 
+    const isArm = isArmMuscle(muscleId);
+    const hasDirectRecently = (data.directSets7d || 0) > 0 || (data.daysSinceDirectTraining !== null && data.daysSinceDirectTraining <= 3);
+    data.hasDirectTrainingRecently = hasDirectRecently;
+    data.isIndirectOnly = !hasDirectRecently && (data.daysSinceTraining !== null || (data.indirectSets7d || 0) > 0);
+
+    const broName = getMuscleBroName(muscleId);
+
     if (data.daysSinceTraining === null) {
       data.freshnessStatus = 'untrained';
       data.recommendation = 'No logged sessions yet. Ready for direct activation.';
-    } else if (data.daysSinceTraining <= 1 || data.effectiveSets7d >= 14) {
-      data.freshnessStatus = 'high_recent_exposure';
-      data.recommendation = `${data.name} underwent heavy recent loading (~${data.daysSinceTraining === 0 ? 'today' : '1 day ago'}). Allow full systemic recovery before high intensity.`;
-    } else if (data.daysSinceTraining <= 2 || (data.effectiveSets7d >= 8 && data.daysSinceTraining <= 3)) {
-      data.freshnessStatus = 'recently_trained';
-      data.recommendation = `Moderate recovery phase (~${Math.floor(data.daysSinceTraining)} days ago). Light accessory work or active recovery is suitable.`;
-    } else if (data.daysSinceTraining <= 4 || data.effectiveSets7d >= 4) {
-      data.freshnessStatus = 'moderate';
-      data.recommendation = `Mostly recovered (~${Math.floor(data.daysSinceTraining)} days ago). Primed for moderate to high volume training today.`;
+    } else if (isArm && data.isIndirectOnly) {
+      // FAST ARM RECOVERY (Arnold Split, Upper Anterior/Posterior splits):
+      // Arms were NOT directly trained (only synergist assistance in chest pressing or back pulling).
+      // They recover 2-3x faster and NEVER turn red 'high_recent_exposure'!
+      const daysSinceIndirect = data.daysSinceIndirectTraining ?? data.daysSinceTraining ?? 99;
+
+      if (daysSinceIndirect === 0) {
+        // Trained earlier today as secondary synergist: light synergist fatigue, never red!
+        data.freshnessStatus = 'recently_trained';
+        data.recommendation = `${broName} received indirect synergist assistance today (compound pressing/pulling). Recovers rapidly; ready for direct arm work tomorrow.`;
+      } else if (daysSinceIndirect <= 1) {
+        // Trained yesterday (e.g. Day 1 Chest/Back of Arnold split):
+        // Synergist fatigue has fully cleared! Arms are fresh and ready for Day 2 Shoulders & Arms!
+        if ((data.indirectSets7d || 0) >= 8) {
+          data.freshnessStatus = 'moderate';
+          data.recommendation = `${broName} had secondary compound assistance yesterday. Synergist fatigue cleared fast; fully primed for direct arm blast today.`;
+        } else {
+          data.freshnessStatus = 'fresh';
+          data.recommendation = `${broName} recovered quickly from indirect compound assistance (~${daysSinceIndirect}d ago). Fresh and primed for direct arm isolation today!`;
+        }
+      } else if (daysSinceIndirect <= 3) {
+        data.freshnessStatus = 'fresh';
+        data.recommendation = `${broName} is completely fresh (${daysSinceIndirect}d since compound assistance). Prime target for dedicated arm volume.`;
+      } else {
+        data.freshnessStatus = 'fresh';
+        data.recommendation = `Fully recovered & supercompensated (${daysSinceIndirect}d since stimulus). Prime target for today's training session.`;
+      }
+    } else if (isArm && hasDirectRecently) {
+      // Direct arm training occurred (curls, pushdowns, skull crushers, etc.)
+      const daysSinceDirect = data.daysSinceDirectTraining ?? data.daysSinceTraining ?? 99;
+      if (daysSinceDirect <= 1 && (data.directSets7d || 0) >= 6) {
+        data.freshnessStatus = 'high_recent_exposure';
+        data.recommendation = `${broName} underwent heavy direct isolation loading (~${daysSinceDirect === 0 ? 'today' : '1 day ago'}). Allow full systemic recovery before high intensity.`;
+      } else if (daysSinceDirect <= 2 || ((data.directSets7d || 0) >= 6 && daysSinceDirect <= 3)) {
+        data.freshnessStatus = 'recently_trained';
+        data.recommendation = `Moderate recovery phase (~${daysSinceDirect}d ago direct session). Light accessory work or active recovery is suitable.`;
+      } else if (daysSinceDirect <= 3.5 || data.effectiveSets7d >= 6) {
+        data.freshnessStatus = 'moderate';
+        data.recommendation = `Mostly recovered (~${daysSinceDirect}d ago). Primed for moderate to high volume direct arm training today.`;
+      } else {
+        data.freshnessStatus = 'fresh';
+        data.recommendation = `Fully recovered & supercompensated (${daysSinceDirect}d since direct stimulus). Prime target for direct arm blast!`;
+      }
+    } else if (data.isIndirectOnly) {
+      // Non-arm muscle that received ONLY indirect assistance (e.g. rear delts or lower back as secondary)
+      const daysSinceIndirect = data.daysSinceIndirectTraining ?? data.daysSinceTraining ?? 99;
+      if (daysSinceIndirect === 0) {
+        data.freshnessStatus = 'recently_trained';
+        data.recommendation = `${broName} assisted in compound movements today. Recovering fast without direct tissue trauma.`;
+      } else if (daysSinceIndirect <= 1.5) {
+        data.freshnessStatus = 'moderate';
+        data.recommendation = `${broName} received indirect assistance (~1d ago). Synergist fatigue is mostly dissipated; ready for direct training.`;
+      } else {
+        data.freshnessStatus = 'fresh';
+        data.recommendation = `Fully recovered & supercompensated (${daysSinceIndirect}d since assistance). Prime target for today's workout.`;
+      }
     } else {
-      data.freshnessStatus = 'fresh';
-      data.recommendation = `Fully recovered & supercompensated (${Math.floor(data.daysSinceTraining)} days since stimulus). Prime target for today's training session.`;
+      // Standard direct loading for compound / main muscle groups (Chest, Lats, Quads, Hamstrings, Glutes, Delts, etc.)
+      if (data.daysSinceTraining <= 1 && data.effectiveSets7d >= 6) {
+        data.freshnessStatus = 'high_recent_exposure';
+        data.recommendation = `${broName} underwent heavy recent loading (~${data.daysSinceTraining === 0 ? 'today' : '1 day ago'}). Allow full systemic recovery before high intensity.`;
+      } else if (data.daysSinceTraining <= 2 || (data.effectiveSets7d >= 8 && data.daysSinceTraining <= 3)) {
+        data.freshnessStatus = 'recently_trained';
+        data.recommendation = `Moderate recovery phase (~${Math.floor(data.daysSinceTraining)} days ago). Light accessory work or active recovery is suitable.`;
+      } else if (data.daysSinceTraining <= 4 || data.effectiveSets7d >= 4) {
+        data.freshnessStatus = 'moderate';
+        data.recommendation = `Mostly recovered (~${Math.floor(data.daysSinceTraining)} days ago). Primed for moderate to high volume training today.`;
+      } else {
+        data.freshnessStatus = 'fresh';
+        data.recommendation = `Fully recovered & supercompensated (${Math.floor(data.daysSinceTraining)} days since stimulus). Prime target for today's training session.`;
+      }
     }
   }
 
@@ -508,11 +623,15 @@ export function buildTrainingRadar(
   const upperLowerRatio = legSets === 0 ? (upperSets > 0 ? 2 : 1) : Math.round((upperSets / legSets) * 100) / 100;
 
   // --- CLASSIFY MUSCLE RECOVERY & UNTRAINED STATES ---
-  // A muscle is "red" on the body diagram if its freshness status is 'high_recent_exposure' OR daysSinceTraining < 1.5
+  // A muscle is "red" on the body diagram if its freshness status is 'high_recent_exposure'.
+  // If an arm muscle was only indirectly involved as a synergist, it is NEVER flagged as red fatigued!
   const isRedFatigued = (mId: MuscleId): boolean => {
     const exp = exposures[mId];
     if (!exp) return false;
-    return exp.freshnessStatus === 'high_recent_exposure' || (exp.daysSinceTraining !== null && exp.daysSinceTraining < 1.5);
+    if (isArmMuscle(mId) && exp.isIndirectOnly) {
+      return false;
+    }
+    return exp.freshnessStatus === 'high_recent_exposure';
   };
 
   // A muscle is "untrained" if it has never been trained in the logbook (0 sets, daysSinceTraining === null)
@@ -528,6 +647,7 @@ export function buildTrainingRadar(
   const legMuscles: MuscleId[] = ['quadriceps', 'hamstrings', 'gluteus', 'calves', 'adductors'];
   const pullMuscles: MuscleId[] = ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps', 'spinal_erectors'];
   const pushMuscles: MuscleId[] = ['chest_mid', 'chest_upper', 'chest_lower', 'pectoralis_major', 'anterior_deltoid', 'lateral_deltoid', 'triceps'];
+  const armMuscles: MuscleId[] = ['lateral_deltoid', 'posterior_deltoid', 'anterior_deltoid', 'biceps', 'triceps', 'forearms'];
   const coreMuscles: MuscleId[] = ['rectus_abdominis', 'obliques'];
 
   // Check untrained status by anatomical region (filtering out any fatigued muscles)
@@ -615,6 +735,13 @@ export function buildTrainingRadar(
         duration: 55
       },
       {
+        id: 'shoulders_arms',
+        name: 'Shoulders & Arms',
+        allMuscles: ['lateral_deltoid', 'posterior_deltoid', 'biceps', 'triceps', 'forearms'] as MuscleId[],
+        title: 'Shoulders & Arms Hypertrophy (Delts & Arms Blast)',
+        duration: 50
+      },
+      {
         id: 'pull',
         name: 'Upper Body Pull',
         allMuscles: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps', 'spinal_erectors'] as MuscleId[],
@@ -639,7 +766,10 @@ export function buildTrainingRadar(
           hasRed = true;
         }
         const exp = exposures[mId];
-        const days = exp?.daysSinceTraining ?? 999;
+        // For arm muscles, direct training is what determines direct fatigue recovery
+        const days = (isArmMuscle(mId) && exp?.isIndirectOnly)
+          ? (exp?.daysSinceDirectTraining ?? 999)
+          : (exp?.daysSinceTraining ?? 999);
         if (days < minDays) minDays = days;
       }
 

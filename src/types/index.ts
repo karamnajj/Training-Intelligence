@@ -42,6 +42,14 @@ export interface MuscleExposureData {
   name: string;
   lastTrainedAt: string | null; // ISO string
   daysSinceTraining: number | null;
+  lastDirectTrainedAt?: string | null;
+  daysSinceDirectTraining?: number | null;
+  lastIndirectTrainedAt?: string | null;
+  daysSinceIndirectTraining?: number | null;
+  directSets7d?: number;
+  indirectSets7d?: number;
+  hasDirectTrainingRecently?: boolean;
+  isIndirectOnly?: boolean;
   effectiveSets7d: number;
   effectiveSets30d: number;
   frequencyWeekly: number;

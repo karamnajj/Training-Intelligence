@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Workout, MuscleId } from '../../types';
 import { MUSCLE_CATALOG } from '../../lib/muscleMath';
 import { EditWorkoutModal } from './EditWorkoutModal';
@@ -15,7 +15,8 @@ import {
   Dumbbell,
   Plus,
   AlertTriangle,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react';
 
 interface HistoryViewProps {
@@ -25,6 +26,7 @@ interface HistoryViewProps {
   onDeleteWorkout: (id: string) => void;
   onStartNewWorkout: () => void;
   onClearAllWorkouts?: () => void;
+  onSync?: () => Promise<void>;
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
@@ -33,15 +35,43 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   onUpdateWorkout,
   onDeleteWorkout,
   onStartNewWorkout,
-  onClearAllWorkouts
+  onClearAllWorkouts,
+  onSync
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [justSynced, setJustSynced] = useState(false);
   const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(
     workouts[0]?.id || null
   );
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
+
+  // Auto-sync on view mount
+  useEffect(() => {
+    if (onSync) {
+      setIsSyncing(true);
+      onSync()
+        .then(() => {
+          setJustSynced(true);
+          setTimeout(() => setJustSynced(false), 2500);
+        })
+        .finally(() => setIsSyncing(false));
+    }
+  }, []);
+
+  const handleManualSync = async () => {
+    if (!onSync || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await onSync();
+      setJustSynced(true);
+      setTimeout(() => setJustSynced(false), 2500);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const filteredWorkouts = workouts.filter(w => {
     const matchesName = w.name?.toLowerCase().includes(searchTerm.toLowerCase());

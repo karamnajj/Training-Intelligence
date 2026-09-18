@@ -149,6 +149,11 @@ export const BodyMap: React.FC<BodyMapProps> = ({
                       </td>
                       <td className="py-3 px-3 font-medium text-slate-800 dark:text-slate-200">
                         {m.effectiveSets7d}
+                        {m.isIndirectOnly && (m.indirectSets7d || 0) > 0 && (
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-normal leading-tight">
+                            synergist
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-3">
                         <button

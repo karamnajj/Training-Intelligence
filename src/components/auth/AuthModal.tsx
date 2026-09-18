@@ -68,7 +68,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const loadAvailableAccounts = async () => {
     try {
       const list = await api.getUsersList();
-      setAvailableAccounts(list);
+      setAvailableAccounts(
+        list.filter(
+          acc =>
+            acc.id !== 'owner' &&
+            acc.id !== 'usr_owner' &&
+            acc.email !== 'owner@trainingintel.app'
+        )
+      );
     } catch (e) {
       console.error('Failed to load accounts list', e);
     }
