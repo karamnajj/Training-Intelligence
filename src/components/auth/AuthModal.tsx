@@ -7,6 +7,7 @@ import {
   X,
   User,
   LogIn,
+  LogOut,
   UserPlus,
   Users,
   ShieldCheck,
@@ -23,6 +24,7 @@ interface AuthModalProps {
   currentUser: AuthUser | null;
   currentProfile: UserProfile | null;
   onAuthSuccess: (user: AuthUser, profile: UserProfile) => void;
+  onLogout?: () => void;
   onClose: () => void;
   initialMode?: 'signin' | 'signup' | 'switch';
 }
@@ -31,10 +33,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   currentUser,
   currentProfile,
   onAuthSuccess,
+  onLogout,
   onClose,
   initialMode = 'signin'
 }) => {
   const [tab, setTab] = useState<'signin' | 'signup' | 'switch'>(initialMode);
+
+  useEffect(() => {
+    setTab(initialMode);
+  }, [initialMode]);
 
   // Form states
   const [email, setEmail] = useState('');
@@ -49,37 +56,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  // Available user accounts for quick switching
-  const [availableAccounts, setAvailableAccounts] = useState<Array<{
-    id: string;
-    email: string;
-    username: string;
-    primaryGoal: string;
-    experienceLevel: string;
-    workoutCount: number;
-    templateCount: number;
-  }>>([]);
-
-  useEffect(() => {
-    loadAvailableAccounts();
-  }, []);
-
-  const loadAvailableAccounts = async () => {
-    try {
-      const list = await api.getUsersList();
-      setAvailableAccounts(
-        list.filter(
-          acc =>
-            acc.id !== 'owner' &&
-            acc.id !== 'usr_owner' &&
-            acc.email !== 'owner@trainingintel.app'
-        )
-      );
-    } catch (e) {
-      console.error('Failed to load accounts list', e);
-    }
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,24 +105,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleSwitchUser = async (userId: string) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await api.switchAccount(userId);
-      const cleanAthleteName = formatAthleteName(res.user.username, res.user.email);
-      setSuccessMessage(`Switched active athlete to ${cleanAthleteName}`);
-      setTimeout(() => {
-        onAuthSuccess(res.user, res.profile);
-        onClose();
-      }, 400);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to switch user account');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleGuestLogin = async () => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -174,31 +132,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const userEmail = firebaseUser.email || 'athlete@google.com';
       const userDisplayName = formatAthleteName(firebaseUser.displayName, userEmail);
 
-      api.setSession(userId, userId, userEmail);
-
-      const authUser: AuthUser = {
-        id: userId,
+      const res = await api.loginWithGoogle({
+        uid: userId,
         email: userEmail,
-        username: userDisplayName,
-        createdAt: new Date().toISOString()
-      };
-
-      const userProfile: UserProfile = {
-        id: `prof_${userId}`,
-        name: userDisplayName,
-        experienceLevel: 'intermediate',
-        primaryGoal: 'hypertrophy',
-        trainingDaysPerWeek: 4,
-        preferredDurationMinutes: 60,
-        availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
-        weightUnit: 'kg',
-        preferredUnit: 'kg',
-        focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
-      };
+        displayName: userDisplayName
+      });
 
       setSuccessMessage(`Connected with Google! Cloud sync active.`);
       setTimeout(() => {
-        onAuthSuccess(authUser, userProfile);
+        onAuthSuccess(res.user, res.profile);
         onClose();
       }, 400);
     } catch (err: any) {
@@ -268,26 +210,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <UserPlus className="w-3.5 h-3.5" />
             Create Account
           </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setTab('switch');
-              setErrorMessage(null);
-            }}
-            className={`flex-1 pb-2.5 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-all ${
-              tab === 'switch'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            Switch Athlete
-          </button>
         </div>
 
         {/* Modal Body */}
         <div className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
+          {/* Current Signed In User Banner */}
+          {currentUser && (
+            <div className="p-3.5 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-center justify-between">
+              <div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-blue-600 dark:text-blue-400">
+                  Currently Active Session
+                </div>
+                <div className="font-bold text-slate-900 dark:text-white text-xs mt-0.5">
+                  {formatAthleteName(currentUser.username, currentUser.email)}
+                </div>
+                {currentUser.email && (
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">{currentUser.email}</div>
+                )}
+              </div>
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLogout();
+                    onClose();
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 font-bold text-xs flex items-center gap-1 transition-all cursor-pointer"
+                  title="Sign out of this session"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sign Out</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Notifications */}
           {errorMessage && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 font-medium animate-in fade-in">
@@ -304,7 +261,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* TAB 1: SIGN IN */}
           {tab === 'signin' && (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Email Address
@@ -313,6 +270,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="email"
+                    name="modal_login_email"
+                    autoComplete="off"
                     required
                     placeholder="athlete@domain.com"
                     value={email}
@@ -330,6 +289,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="password"
+                    name="modal_login_password"
+                    autoComplete="new-password"
                     required
                     placeholder="••••••••"
                     value={password}
@@ -382,37 +343,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </svg>
                 <span>Continue with Google (Cloud Synced)</span>
               </button>
-
-              <div className="relative py-2 flex items-center justify-center">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200 dark:border-slate-800" />
-                </div>
-                <span className="relative px-3 bg-white dark:bg-slate-900 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Reviewer Mode
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGuestLogin}
-                disabled={isLoading}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-slate-100 to-blue-50 hover:from-slate-200 hover:to-blue-100 dark:from-slate-800 dark:to-blue-950/50 dark:hover:from-slate-700 dark:hover:to-blue-900/60 text-slate-800 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 border border-slate-200 dark:border-slate-700 shadow-xs transition-all active:scale-[0.99] cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4 text-blue-500 shrink-0" />
-                <span>Sign in as Guest (View General Data)</span>
-              </button>
             </form>
           )}
 
           {/* TAB 2: CREATE ACCOUNT (SIGN UP) */}
           {tab === 'signup' && (
-            <form onSubmit={handleRegister} className="space-y-3.5">
+            <form onSubmit={handleRegister} className="space-y-3.5" autoComplete="off">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Athlete Name
                 </label>
                 <input
                   type="text"
+                  name="modal_signup_name"
+                  autoComplete="off"
                   required
                   placeholder="e.g. Jordan Hayes"
                   value={username}
@@ -428,6 +372,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </label>
                   <input
                     type="email"
+                    name="modal_signup_email"
+                    autoComplete="off"
                     required
                     placeholder="jordan@gym.com"
                     value={email}
@@ -441,6 +387,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </label>
                   <input
                     type="password"
+                    name="modal_signup_password"
+                    autoComplete="new-password"
                     required
                     placeholder="••••••••"
                     value={password}
@@ -542,83 +490,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 )}
               </button>
             </form>
-          )}
-
-          {/* TAB 3: SWITCH ACTIVE ATHLETE */}
-          {tab === 'switch' && (
-            <div className="space-y-3">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                Accounts Registered on Server:
-              </span>
-
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {availableAccounts.length === 0 ? (
-                  <div className="text-center py-8 px-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800">
-                    <Users className="w-8 h-8 mx-auto text-slate-400 mb-2" />
-                    <p className="text-slate-700 dark:text-slate-300 font-semibold mb-1">No accounts found</p>
-                    <p className="text-[11px] text-slate-500 mb-4">Create a new athlete account to get started.</p>
-                    <button
-                      type="button"
-                      onClick={() => setTab('signup')}
-                      className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-500"
-                    >
-                      Create Account
-                    </button>
-                  </div>
-                ) : (
-                  availableAccounts.map(acc => {
-                  const isCurrent = currentUser?.id === acc.id;
-                  return (
-                    <div
-                      key={acc.id}
-                      onClick={() => !isCurrent && handleSwitchUser(acc.id)}
-                      className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer ${
-                        isCurrent
-                          ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800 cursor-default'
-                          : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 hover:border-blue-500'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
-                            isCurrent
-                              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          {formatAthleteName(acc.username, acc.email).charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-slate-900 dark:text-white">
-                              {formatAthleteName(acc.username, acc.email)}
-                            </span>
-                            {isCurrent && (
-                              <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold text-[9px] uppercase">
-                                Active
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] text-slate-500 block">
-                            {acc.email} • {acc.workoutCount} workouts logged • {acc.templateCount} plans
-                          </span>
-                        </div>
-                      </div>
-
-                      {!isCurrent && (
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-blue-600 hover:text-white font-bold text-slate-700 dark:text-slate-300 text-[11px] flex items-center gap-1 transition-all"
-                        >
-                          Switch <ArrowRight className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-              </div>
-            </div>
           )}
         </div>
 

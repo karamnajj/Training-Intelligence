@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "lastSavedAt": "2026-09-18T08:57:56.781Z",
+  "lastSavedAt": "2026-09-21T10:37:31.861Z",
   "usersCount": 2,
   "users": [
     {
@@ -36,8 +36,8 @@
         {
           "id": "alex_showcase_push_yesterday",
           "name": "Heavy Upper Chest & Deltoid Power",
-          "startedAt": "2026-09-17T07:54:51.802Z",
-          "completedAt": "2026-09-17T08:56:51.802Z",
+          "startedAt": "2026-09-20T09:35:31.860Z",
+          "completedAt": "2026-09-20T10:37:31.860Z",
           "durationSeconds": 3720,
           "notes": "Clean locks on incline dumbbells and heavy flat barbell press. Pectorals and anterior delts fully stimulated.",
           "totalVolumeKg": 4280,
@@ -155,13 +155,14 @@
                 }
               ]
             }
-          ]
+          ],
+          "userId": "usr_guest_demo"
         },
         {
           "id": "alex_showcase_pull_2d",
           "name": "Lat Hypertrophy & Posterior Chain",
-          "startedAt": "2026-09-16T05:22:51.802Z",
-          "completedAt": "2026-09-16T06:32:51.802Z",
+          "startedAt": "2026-09-19T07:03:31.860Z",
+          "completedAt": "2026-09-19T08:13:31.860Z",
           "durationSeconds": 4200,
           "notes": "Excellent lat contraction and heavy seated cable rows. Great bicep and rear delt accessory pump.",
           "totalVolumeKg": 4620,
@@ -305,13 +306,14 @@
                 }
               ]
             }
-          ]
+          ],
+          "userId": "usr_guest_demo"
         },
         {
           "id": "alex_showcase_legs_4d",
           "name": "Lower Body Compound Loading",
-          "startedAt": "2026-09-14T12:29:51.802Z",
-          "completedAt": "2026-09-14T13:44:51.802Z",
+          "startedAt": "2026-09-17T14:10:31.860Z",
+          "completedAt": "2026-09-17T15:25:31.860Z",
           "durationSeconds": 4500,
           "notes": "Deep back squats and Romanian deadlifts. Quads and gluteals in active recovery.",
           "totalVolumeKg": 4950,
@@ -429,13 +431,14 @@
                 }
               ]
             }
-          ]
+          ],
+          "userId": "usr_guest_demo"
         },
         {
           "id": "alex_showcase_core_arms_6d",
           "name": "Arms, Calves & Core Priming",
-          "startedAt": "2026-09-12T12:53:11.802Z",
-          "completedAt": "2026-09-12T13:44:51.802Z",
+          "startedAt": "2026-09-15T14:33:51.860Z",
+          "completedAt": "2026-09-15T15:25:31.860Z",
           "durationSeconds": 3100,
           "notes": "High-rep calf and abdominal wall priming. Triceps and core are now supercompensated and ready for direct work.",
           "totalVolumeKg": 2420,
@@ -451,8 +454,8 @@
             {
               "id": "alex_ex_11",
               "exerciseId": "triceps_rope_pushdown",
-              "exerciseName": "Cable Triceps Rope Pushdown",
-              "notes": "Flaring rope at lockout",
+              "exerciseName": "Cable Triceps Pushdown",
+              "notes": "Smooth lockout at bottom",
               "sets": [
                 {
                   "id": "as30",
@@ -553,7 +556,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "userId": "usr_guest_demo"
         }
       ],
       "templates": [
@@ -594,7 +598,7 @@
             },
             {
               "exerciseId": "triceps_rope_pushdown",
-              "exerciseName": "Cable Triceps Rope Pushdown",
+              "exerciseName": "Cable Triceps Pushdown",
               "sets": 3,
               "repMin": 10,
               "repMax": 12,
@@ -745,54 +749,64 @@
           "exerciseName": "Barbell Back Squat",
           "maxWeightKg": 125,
           "maxReps": 6,
-          "achievedAt": "2026-09-14T13:44:51.803Z",
+          "achievedAt": "2026-09-17T15:25:31.861Z",
           "workoutId": "alex_showcase_legs_4d",
-          "estimated1RMKg": 150
+          "estimated1RMKg": 150,
+          "userId": "usr_guest_demo"
         },
         {
           "exerciseId": "barbell_bench_press",
           "exerciseName": "Barbell Bench Press (Flat)",
           "maxWeightKg": 100,
           "maxReps": 8,
-          "achievedAt": "2026-09-17T08:56:51.803Z",
+          "achievedAt": "2026-09-20T10:37:31.861Z",
           "workoutId": "alex_showcase_push_yesterday",
-          "estimated1RMKg": 126.7
+          "estimated1RMKg": 126.7,
+          "userId": "usr_guest_demo"
         },
         {
           "exerciseId": "romanian_deadlift",
           "exerciseName": "Romanian Deadlift",
           "maxWeightKg": 110,
           "maxReps": 8,
-          "achievedAt": "2026-09-14T13:44:51.803Z",
+          "achievedAt": "2026-09-17T15:25:31.861Z",
           "workoutId": "alex_showcase_legs_4d",
-          "estimated1RMKg": 139.3
+          "estimated1RMKg": 139.3,
+          "userId": "usr_guest_demo"
         },
         {
           "exerciseId": "lat_pulldown",
           "exerciseName": "Lat Pulldown",
           "maxWeightKg": 85,
           "maxReps": 8,
-          "achievedAt": "2026-09-16T06:32:51.803Z",
+          "achievedAt": "2026-09-19T08:13:31.861Z",
           "workoutId": "alex_showcase_pull_2d",
-          "estimated1RMKg": 107.7
+          "estimated1RMKg": 107.7,
+          "userId": "usr_guest_demo"
         },
         {
           "exerciseId": "incline_dumbbell_press",
           "exerciseName": "Incline Dumbbell Bench Press",
           "maxWeightKg": 36,
           "maxReps": 8,
-          "achievedAt": "2026-09-17T08:56:51.803Z",
+          "achievedAt": "2026-09-20T10:37:31.861Z",
           "workoutId": "alex_showcase_push_yesterday",
-          "estimated1RMKg": 45.6
+          "estimated1RMKg": 45.6,
+          "userId": "usr_guest_demo"
         }
       ],
-      "deletedWorkoutIds": []
+      "deletedWorkoutIds": [
+        "workout_gym_test_1789483620040",
+        "workout_1788937113526_889u4",
+        "workout_1788937004112_771b2"
+      ],
+      "passwordHash": "27e8f2ca527b32c71e3f1bdcf61e30350dd08ae8d9176cebaedb9c92af1c1c1a911a141c0987d090a4ae43d185e244bb8187aec7eb930d02923b872a9d7672fa",
+      "passwordSalt": "6eeee5f97ee476d540775c374e640fb3"
     },
     {
       "id": "usr_karam_owner",
       "email": "karamnajj79@gmail.com",
       "username": "Karam",
-      "password": "athlete_auth_token_secured",
       "createdAt": "2026-09-15T08:03:55.141Z",
       "profile": {
         "id": "prof_usr_karam_owner",
@@ -817,347 +831,7 @@
           "quadriceps"
         ]
       },
-      "workouts": [
-        {
-          "id": "workout_gym_test_1789483620040",
-          "name": "Leg Day & Squat Progression",
-          "startedAt": "2026-09-15T14:47:00.040Z",
-          "completedAt": "2026-09-15T14:47:00.040Z",
-          "durationSeconds": 3600,
-          "totalVolumeKg": 800,
-          "totalSets": 1,
-          "musclesTrained": [],
-          "exercises": [
-            {
-              "id": "ex_1",
-              "exerciseId": "barbell_squat",
-              "exerciseName": "Barbell Back Squat",
-              "sets": [
-                {
-                  "id": "s1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 100,
-                  "reps": 8,
-                  "completed": true
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "workout_1788937113526_889u4",
-          "name": "Heavy Push & Chest Focus",
-          "startedAt": "2026-09-08T22:15:00.000Z",
-          "completedAt": "2026-09-08T23:25:00.000Z",
-          "durationSeconds": 4200,
-          "notes": "Felt strong on flat bench, locked out 100kg for 10 clean reps.",
-          "totalVolumeKg": 4870,
-          "totalSets": 12,
-          "musclesTrained": [
-            "chest_mid",
-            "chest_upper",
-            "triceps",
-            "anterior_deltoid",
-            "lateral_deltoid"
-          ],
-          "rpeAverage": 8.5,
-          "exercises": [
-            {
-              "id": "ex_push_1",
-              "exerciseId": "barbell_bench_press",
-              "exerciseName": "Barbell Bench Press",
-              "notes": "Top working set at 100kg x 10 reps",
-              "sets": [
-                {
-                  "id": "s1_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 80,
-                  "reps": 12,
-                  "completed": true,
-                  "rpe": 7.5
-                },
-                {
-                  "id": "s1_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 90,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "s1_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 100,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 9
-                }
-              ]
-            },
-            {
-              "id": "ex_push_2",
-              "exerciseId": "incline_dumbbell_press",
-              "exerciseName": "Incline Dumbbell Bench Press",
-              "sets": [
-                {
-                  "id": "s2_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 28,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "s2_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 30,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8.5
-                },
-                {
-                  "id": "s2_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 32,
-                  "reps": 8,
-                  "completed": true,
-                  "rpe": 9
-                }
-              ]
-            },
-            {
-              "id": "ex_push_3",
-              "exerciseId": "dumbbell_lateral_raise",
-              "exerciseName": "Dumbbell Lateral Raise",
-              "sets": [
-                {
-                  "id": "s3_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 12.5,
-                  "reps": 15,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "s3_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 12.5,
-                  "reps": 14,
-                  "completed": true,
-                  "rpe": 8.5
-                },
-                {
-                  "id": "s3_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 15,
-                  "reps": 12,
-                  "completed": true,
-                  "rpe": 9
-                }
-              ]
-            },
-            {
-              "id": "ex_push_4",
-              "exerciseId": "triceps_rope_pushdown",
-              "exerciseName": "Cable Triceps Rope Pushdown",
-              "sets": [
-                {
-                  "id": "s4_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 27.5,
-                  "reps": 12,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "s4_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 30,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8.5
-                },
-                {
-                  "id": "s4_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 32.5,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 9
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "workout_1788937004112_771b2",
-          "name": "Lat Width & Back Hypertrophy",
-          "startedAt": "2026-09-07T20:30:00.000Z",
-          "completedAt": "2026-09-07T21:40:00.000Z",
-          "durationSeconds": 4200,
-          "notes": "Great lat stretch and controlled rowing eccentric.",
-          "totalVolumeKg": 4620,
-          "totalSets": 12,
-          "musclesTrained": [
-            "latissimus_dorsi",
-            "trapezius",
-            "posterior_deltoid",
-            "biceps"
-          ],
-          "rpeAverage": 8.2,
-          "exercises": [
-            {
-              "id": "ex_pull_1",
-              "exerciseId": "barbell_bent_over_row",
-              "exerciseName": "Barbell Bent-Over Row",
-              "sets": [
-                {
-                  "id": "p1_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 70,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 7.5
-                },
-                {
-                  "id": "p1_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 75,
-                  "reps": 8,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "p1_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 80,
-                  "reps": 8,
-                  "completed": true,
-                  "rpe": 8.5
-                }
-              ]
-            },
-            {
-              "id": "ex_pull_2",
-              "exerciseId": "lat_pulldown",
-              "exerciseName": "Lat Pulldown (Wide/Neutral Grip)",
-              "sets": [
-                {
-                  "id": "p2_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 65,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 7.5
-                },
-                {
-                  "id": "p2_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 70,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "p2_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 75,
-                  "reps": 8,
-                  "completed": true,
-                  "rpe": 8.5
-                }
-              ]
-            },
-            {
-              "id": "ex_pull_3",
-              "exerciseId": "face_pulls",
-              "exerciseName": "Cable Face Pull",
-              "sets": [
-                {
-                  "id": "p3_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 22.5,
-                  "reps": 15,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "p3_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 25,
-                  "reps": 15,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "p3_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 25,
-                  "reps": 12,
-                  "completed": true,
-                  "rpe": 8.5
-                }
-              ]
-            },
-            {
-              "id": "ex_pull_4",
-              "exerciseId": "barbell_bicep_curl",
-              "exerciseName": "Barbell Bicep Curl",
-              "sets": [
-                {
-                  "id": "p4_1",
-                  "setNumber": 1,
-                  "type": "normal",
-                  "weightKg": 30,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8
-                },
-                {
-                  "id": "p4_2",
-                  "setNumber": 2,
-                  "type": "normal",
-                  "weightKg": 32.5,
-                  "reps": 10,
-                  "completed": true,
-                  "rpe": 8.5
-                },
-                {
-                  "id": "p4_3",
-                  "setNumber": 3,
-                  "type": "normal",
-                  "weightKg": 35,
-                  "reps": 8,
-                  "completed": true,
-                  "rpe": 9
-                }
-              ]
-            }
-          ]
-        }
-      ],
+      "workouts": [],
       "templates": [
         {
           "id": "template_push_hypertrophy",
@@ -1196,7 +870,7 @@
             },
             {
               "exerciseId": "triceps_rope_pushdown",
-              "exerciseName": "Cable Triceps Rope Pushdown",
+              "exerciseName": "Cable Triceps Pushdown",
               "sets": 3,
               "repMin": 10,
               "repMax": 12,
@@ -1341,89 +1015,7 @@
           ]
         }
       ],
-      "personalRecords": [
-        {
-          "exerciseId": "barbell_bent_over_row",
-          "exerciseName": "Barbell Bent-Over Row",
-          "maxWeightKg": 80,
-          "maxReps": 8,
-          "estimated1RMKg": 101.3,
-          "achievedAt": "2026-09-07T21:40:00.000Z",
-          "workoutId": "workout_1788937004112_771b2"
-        },
-        {
-          "exerciseId": "lat_pulldown",
-          "exerciseName": "Lat Pulldown (Wide/Neutral Grip)",
-          "maxWeightKg": 75,
-          "maxReps": 8,
-          "estimated1RMKg": 95,
-          "achievedAt": "2026-09-07T21:40:00.000Z",
-          "workoutId": "workout_1788937004112_771b2"
-        },
-        {
-          "exerciseId": "face_pulls",
-          "exerciseName": "Cable Face Pull",
-          "maxWeightKg": 25,
-          "maxReps": 15,
-          "estimated1RMKg": 37.5,
-          "achievedAt": "2026-09-07T21:40:00.000Z",
-          "workoutId": "workout_1788937004112_771b2"
-        },
-        {
-          "exerciseId": "barbell_bicep_curl",
-          "exerciseName": "Barbell Bicep Curl",
-          "maxWeightKg": 35,
-          "maxReps": 8,
-          "estimated1RMKg": 44.3,
-          "achievedAt": "2026-09-07T21:40:00.000Z",
-          "workoutId": "workout_1788937004112_771b2"
-        },
-        {
-          "exerciseId": "barbell_bench_press",
-          "exerciseName": "Barbell Bench Press",
-          "maxWeightKg": 100,
-          "maxReps": 10,
-          "estimated1RMKg": 133.3,
-          "achievedAt": "2026-09-08T23:25:00.000Z",
-          "workoutId": "workout_1788937113526_889u4"
-        },
-        {
-          "exerciseId": "incline_dumbbell_press",
-          "exerciseName": "Incline Dumbbell Bench Press",
-          "maxWeightKg": 32,
-          "maxReps": 8,
-          "estimated1RMKg": 40.5,
-          "achievedAt": "2026-09-08T23:25:00.000Z",
-          "workoutId": "workout_1788937113526_889u4"
-        },
-        {
-          "exerciseId": "dumbbell_lateral_raise",
-          "exerciseName": "Dumbbell Lateral Raise",
-          "maxWeightKg": 15,
-          "maxReps": 12,
-          "estimated1RMKg": 21,
-          "achievedAt": "2026-09-08T23:25:00.000Z",
-          "workoutId": "workout_1788937113526_889u4"
-        },
-        {
-          "exerciseId": "triceps_rope_pushdown",
-          "exerciseName": "Cable Triceps Rope Pushdown",
-          "maxWeightKg": 32.5,
-          "maxReps": 10,
-          "estimated1RMKg": 43.3,
-          "achievedAt": "2026-09-08T23:25:00.000Z",
-          "workoutId": "workout_1788937113526_889u4"
-        },
-        {
-          "exerciseId": "barbell_squat",
-          "exerciseName": "Barbell Back Squat",
-          "maxWeightKg": 100,
-          "maxReps": 8,
-          "estimated1RMKg": 126.7,
-          "achievedAt": "2026-09-15T14:47:00.040Z",
-          "workoutId": "workout_gym_test_1789483620040"
-        }
-      ],
+      "personalRecords": [],
       "deletedWorkoutIds": [
         "template_full_body_power",
         "tpl_usr_guest_demo_template_pull_posterior",
@@ -1435,8 +1027,13 @@
         "template_push_hypertrophy",
         "template_pull_posterior",
         "template_legs_power",
-        "tpl_usr_guest_demo_template_full_body_power"
-      ]
+        "tpl_usr_guest_demo_template_full_body_power",
+        "workout_gym_test_1789483620040",
+        "workout_1788937113526_889u4",
+        "workout_1788937004112_771b2"
+      ],
+      "passwordHash": "75dbd4fbd6f6003767590ba574c91c5a3dcd3d644e57936888f36ee1327ee903719b45ce853084f1d80909e786654f8057ad58f481002ee0c163606b7f39e97c",
+      "passwordSalt": "18cf19769705c971be9e7a8150bba797"
     }
   ],
   "sessions": [
@@ -1469,6 +1066,81 @@
       "token": "tok_usr_karam_owner_1789721876431_s13apd",
       "userId": "usr_karam_owner",
       "createdAt": 1789721876431
+    },
+    {
+      "token": "tok_usr_guest_demo_1789721975298_j99dld",
+      "userId": "usr_guest_demo",
+      "createdAt": 1789721975298
+    },
+    {
+      "token": "tok_usr_karam_owner_1789722567209_9xul5d",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789898395514
+    },
+    {
+      "token": "tok_usr_1789898873006_1377c106_1789898873057_f3a5d4b12a48776baadc58f0bebf6fb5",
+      "userId": "usr_1789898873006_1377c106",
+      "createdAt": 1789898873057
+    },
+    {
+      "token": "tok_usr_karam_owner_1789898890059_56dceef6720ca448fb0c0829ec6c968b",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789898890059
+    },
+    {
+      "token": "tok_usr_karam_owner_1789898900833_a6f3411fda91dbaae81714b5df26121c",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789898900833
+    },
+    {
+      "token": "tok_usr_1789898900859_7d323954_1789898900909_ed1826153b1fd3a7d35a2c5f54413ffa",
+      "userId": "usr_1789898900859_7d323954",
+      "createdAt": 1789898900909
+    },
+    {
+      "token": "tok_usr_1789898911897_2ab841d7_1789898911947_3ad6a1bbb8f571e074521bfb0ddc2e85",
+      "userId": "usr_1789898911897_2ab841d7",
+      "createdAt": 1789898911948
+    },
+    {
+      "token": "tok_usr_karam_owner_1789898912026_ed9104308d9b32fb4f94be98998e4a60",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789898912026
+    },
+    {
+      "token": "tok_usr_karam_owner_1789985246117_53814fc0019a19f080bfe1537df3c041",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789985246117
+    },
+    {
+      "token": "tok_usr_karam_owner_1789985246175_a1ec7786be638dd248aa6d898c1d44cb",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789985246175
+    },
+    {
+      "token": "tok_usr_karam_owner_1789985246284_3d07b9a7ad97839df2ff3af7dd35993a",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789985246284
+    },
+    {
+      "token": "tok_usr_karam_owner_1789985285092_d84a1223215ccf1fb8de1ef40f3e7bda",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789985285092
+    },
+    {
+      "token": "tok_usr_karam_owner_1789985285181_e3ab9408ab05108d7e23b5d4ea29eea1",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789985285181
+    },
+    {
+      "token": "tok_usr_guest_demo_1789985498820_62a66a6a99e12e2878c912d10b95e57b",
+      "userId": "usr_guest_demo",
+      "createdAt": 1789985498821
+    },
+    {
+      "token": "tok_usr_karam_owner_1789985511357_cbc76272d6fafb2b01eaf9424a85b235",
+      "userId": "usr_karam_owner",
+      "createdAt": 1789985511357
     }
   ]
 }

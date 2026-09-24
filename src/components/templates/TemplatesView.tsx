@@ -528,14 +528,19 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                         </div>
 
                         <div>
-                          <label className="text-[10px] text-slate-500 font-medium block mb-0.5">
-                            Rest (sec)
-                          </label>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <label className="text-[10px] text-slate-500 font-medium">
+                              Rest (sec)
+                            </label>
+                            <span className="text-[9px] font-mono text-amber-500 font-bold">
+                              {e.restSeconds >= 60 ? `${(e.restSeconds / 60).toFixed(e.restSeconds % 60 === 0 ? 0 : 1)}m` : `${e.restSeconds}s`}
+                            </span>
+                          </div>
                           <input
                             type="number"
                             step="15"
                             min="30"
-                            max="300"
+                            max="600"
                             value={e.restSeconds}
                             onChange={ev =>
                               handleUpdateExerciseParam(
@@ -546,6 +551,22 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                             }
                             className="w-full p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-center"
                           />
+                          <div className="flex items-center gap-1 mt-1 justify-center">
+                            {[60, 90, 120, 180, 300].map(s => (
+                              <button
+                                key={s}
+                                type="button"
+                                onClick={() => handleUpdateExerciseParam(idx, 'restSeconds', s)}
+                                className={`px-1 py-0.5 text-[9px] font-semibold rounded ${
+                                  e.restSeconds === s
+                                    ? 'bg-amber-500 text-white font-bold'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                }`}
+                              >
+                                {s === 300 ? '5m' : s === 180 ? '3m' : s === 120 ? '2m' : `${s}s`}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>

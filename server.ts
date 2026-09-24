@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import {
@@ -95,48 +96,86 @@ function isGenuineWorkout(w: any): boolean {
 
 // Format athlete names into clean, capitalized real names (e.g. "karamnajj79@gmail.com" -> "Karam")
 function formatAthleteName(rawName?: string | null, email?: string | null): string {
-  if (rawName && typeof rawName === 'string') {
-    const trimmed = rawName.trim();
-    if (trimmed && trimmed.toLowerCase() !== 'athlete') {
-      const base = trimmed.includes('@') ? trimmed.split('@')[0] : trimmed;
-      if (/^karam/i.test(base)) {
-        return 'Karam';
-      }
-      if (/\d/.test(base) || /[._-]/.test(base)) {
-        const lettersOnly = base.replace(/[^a-zA-Z]/g, ' ').trim();
-        const parts = lettersOnly.split(/\s+/).filter(p => p.length >= 2);
-        if (parts.length > 0) {
-          return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
-        }
-      } else {
-        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-      }
-    }
-  }
+  const cleanEmail = (email || '').trim().toLowerCase();
+  let candidate = (rawName || '').trim();
 
-  if (email && typeof email === 'string' && email.trim().length > 0) {
-    const handle = email.trim().split('@')[0];
-    if (/^karam/i.test(handle)) {
+  // 1. If user explicitly provided a real display name (not an email and not generic placeholders)
+  if (
+    candidate &&
+    !candidate.includes('@') &&
+    candidate.toLowerCase() !== 'athlete' &&
+    candidate.toLowerCase() !== 'user' &&
+    candidate.toLowerCase() !== 'guest'
+  ) {
+    if (candidate.toLowerCase() === 'karamnajj79' || candidate.toLowerCase() === 'karamnajj') {
       return 'Karam';
     }
-    const cleaned = handle.replace(/\d+$/g, '').replace(/[._-]+/g, ' ').trim();
-    if (cleaned.length >= 2) {
-      const parts = cleaned.split(/\s+/).filter(p => p.length >= 2);
+
+    const words = candidate.split(/\s+/).filter(Boolean);
+    if (words.length > 0) {
+      return words
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+    }
+    return candidate.charAt(0).toUpperCase() + candidate.slice(1);
+  }
+
+  // 2. If no valid name was provided, extract from email
+  let handle = '';
+  if (cleanEmail && cleanEmail.includes('@')) {
+    handle = cleanEmail.split('@')[0];
+  } else if (candidate && candidate.includes('@')) {
+    handle = candidate.split('@')[0];
+  }
+
+  if (handle) {
+    const cleanHandle = handle.toLowerCase();
+    if (cleanHandle === 'karamnajj79' || cleanHandle === 'karamnajj' || cleanEmail === 'karamnajj79@gmail.com') {
+      return 'Karam';
+    }
+
+    let stripped = handle.replace(/^[0-9]+/, '').replace(/[0-9]+$/, '');
+    if (/[._+-]/.test(stripped)) {
+      const parts = stripped.split(/[._+-]+/).filter(Boolean);
       if (parts.length > 0) {
         return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
       }
-      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
     }
-    const alpha = handle.replace(/[^a-zA-Z]/g, ' ').trim();
-    if (alpha.length >= 2) {
-      const parts = alpha.split(/\s+/).filter(p => p.length >= 2);
-      if (parts.length > 0) {
-        return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
-      }
+
+    if (stripped.length >= 2) {
+      return stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase();
     }
+    return handle.charAt(0).toUpperCase() + handle.slice(1);
+  }
+
+  if (candidate && candidate.length > 0) {
+    return candidate.charAt(0).toUpperCase() + candidate.slice(1);
   }
 
   return 'Athlete';
+}
+
+// Password Security Hashing (using built-in crypto)
+function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
+  const actualSalt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, actualSalt, 64).toString('hex');
+  return { hash, salt: actualSalt };
+}
+
+function verifyPassword(password: string, storedHash?: string, storedSalt?: string, legacyPlaintext?: string): boolean {
+  if (storedHash && storedSalt) {
+    const { hash } = hashPassword(password, storedSalt);
+    try {
+      return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+    } catch {
+      return false;
+    }
+  }
+  // Fallback for legacy unhashed passwords
+  if (legacyPlaintext) {
+    return password === legacyPlaintext;
+  }
+  return false;
 }
 
 // User Account Structure for Isolated Multi-User Persistence
@@ -144,7 +183,10 @@ interface UserAccount {
   id: string;
   email: string;
   username: string;
-  password: string;
+  password?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
+  needsPasswordMigration?: boolean;
   createdAt: string;
   profile: UserProfile;
   workouts: Workout[];
@@ -164,8 +206,8 @@ function seedPrimaryUserAccounts() {
   // Configured with high-impact, multi-day split that produces a vivid, colorful recovery heatmap
   const guestId = 'usr_guest_demo';
   let guestAccount = userAccounts.get(guestId);
-  const showcaseWorkouts = getGuestShowcaseWorkouts(new Date());
-  const showcasePRs = getGuestShowcasePersonalRecords();
+  const showcaseWorkouts = getGuestShowcaseWorkouts(new Date()).map(w => ({ ...w, userId: guestId }));
+  const showcasePRs = getGuestShowcasePersonalRecords().map(pr => ({ ...pr, userId: guestId }));
 
   if (!guestAccount) {
     const guestProfile: UserProfile = {
@@ -181,15 +223,18 @@ function seedPrimaryUserAccounts() {
       focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'hamstrings']
     };
 
+    const { hash, salt } = hashPassword('guest_demo_password');
+
     guestAccount = {
       id: guestId,
       email: 'guest@trainingintel.demo',
       username: 'Alex Vance (Guest)',
-      password: 'guest_demo_password',
+      passwordHash: hash,
+      passwordSalt: salt,
       createdAt: new Date().toISOString(),
       profile: guestProfile,
       workouts: showcaseWorkouts,
-      templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}` })),
+      templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}`, userId: guestId })),
       personalRecords: showcasePRs,
       deletedWorkoutIds: []
     };
@@ -202,9 +247,47 @@ function seedPrimaryUserAccounts() {
     // Refresh showcase workouts and PRs for Alex Vance to guarantee vibrant colorful recovery diagram
     guestAccount.workouts = showcaseWorkouts;
     guestAccount.personalRecords = showcasePRs;
+    if (!guestAccount.passwordHash) {
+      const { hash, salt } = hashPassword(guestAccount.password || 'guest_demo_password');
+      guestAccount.passwordHash = hash;
+      guestAccount.passwordSalt = salt;
+    }
   }
 
-  // Purge any lingering owner references
+  // 2. Ensure Karam (owner) account exists and is properly secured
+  const karamId = 'usr_karam_owner';
+  let karamAccount = userAccounts.get(karamId);
+  if (!karamAccount) {
+    // Search by email
+    for (const acc of userAccounts.values()) {
+      if (acc.email && acc.email.toLowerCase() === 'karamnajj79@gmail.com') {
+        karamAccount = acc;
+        break;
+      }
+    }
+  }
+
+  if (karamAccount) {
+    karamAccount.username = 'Karam';
+    if (karamAccount.profile) karamAccount.profile.name = 'Karam';
+    if (
+      karamAccount.password === 'athlete_auth_token_secured' ||
+      karamAccount.passwordHash === '4eda0d34acbf0a5fa8aedbe606cf36ef0f29de2ec57f6ced711bd6cb62348ca08ba6ad8dad66ca34718dbeb60e343b8911ca479ebe94567639acee6a2421c85d'
+    ) {
+      delete karamAccount.password;
+      delete karamAccount.passwordHash;
+      delete karamAccount.passwordSalt;
+      karamAccount.needsPasswordMigration = true;
+    }
+    // Tag all workouts with karam's userId
+    for (const w of karamAccount.workouts || []) {
+      w.userId = karamAccount.id;
+    }
+    userAccounts.set('usr_karam_owner', karamAccount);
+    userAccounts.set('karamnajj79@gmail.com', karamAccount);
+  }
+
+  // Purge any lingering legacy owner references
   userAccounts.delete('owner');
   userAccounts.delete('usr_owner');
 
@@ -220,6 +303,12 @@ function seedPrimaryUserAccounts() {
         account.profile.name = formatAthleteName(account.profile.name, account.email);
       }
     }
+    // Upgrade unhashed passwords
+    if (!account.passwordHash && account.password) {
+      const { hash, salt } = hashPassword(account.password);
+      account.passwordHash = hash;
+      account.passwordSalt = salt;
+    }
     if (!Array.isArray(account.deletedWorkoutIds)) {
       account.deletedWorkoutIds = [];
     }
@@ -229,9 +318,14 @@ function seedPrimaryUserAccounts() {
     } else {
       // Purge any non-genuine workout (templates, corrupted items, or previously deleted items)
       account.workouts = account.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+      // Tag with account userId
+      for (const w of account.workouts) {
+        w.userId = account.id;
+      }
     }
-    if (account.workouts.length === 0) {
-      account.workouts = (account.id === guestId ? showcaseWorkouts : getSeedWorkouts()).filter(w => !delSet.has(w.id));
+    // Only seed showcase workouts for the guest demo account. Real users start with their own workouts.
+    if (account.id === guestId && account.workouts.length === 0) {
+      account.workouts = showcaseWorkouts.filter(w => !delSet.has(w.id));
     }
     if (account.id !== guestId) {
       rebuildPersonalRecordsForUser(account);
@@ -256,6 +350,11 @@ function loadDatabaseFromDisk() {
           const raw = fs.readFileSync(filePath, 'utf-8');
           if (raw.trim()) {
             const data = JSON.parse(raw);
+            const BANNED_WORKOUT_IDS = new Set([
+              'workout_gym_test_1789483620040',
+              'workout_1788937113526_889u4',
+              'workout_1788937004112_771b2'
+            ]);
             if (Array.isArray(data.users) && data.users.length > 0) {
               for (const u of data.users) {
                 if (!u || !u.id) continue;
@@ -264,9 +363,13 @@ function loadDatabaseFromDisk() {
 
                 if (!Array.isArray(u.deletedWorkoutIds)) u.deletedWorkoutIds = [];
                 if (!Array.isArray(u.workouts)) u.workouts = [];
+                // Guarantee banned IDs are in deletedWorkoutIds for Karam and all users
+                for (const bid of BANNED_WORKOUT_IDS) {
+                  if (!u.deletedWorkoutIds.includes(bid)) u.deletedWorkoutIds.push(bid);
+                }
                 const delSet = new Set(u.deletedWorkoutIds);
                 // Filter out invalid or deleted workouts immediately
-                u.workouts = u.workouts.filter((w: any) => isGenuineWorkout(w) && !delSet.has(w.id));
+                u.workouts = u.workouts.filter((w: any) => isGenuineWorkout(w) && !delSet.has(w.id) && !BANNED_WORKOUT_IDS.has(w.id));
 
                 if (u.email) {
                   u.username = formatAthleteName(u.username, u.email);
@@ -482,13 +585,15 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
     }
   }
 
-  // Truly a new user account: create initial container
+  // Truly a new user account: create initial container with strictly isolated empty workouts and PRs
   const namePart = formatAthleteName(null, cleanEmail);
+  const { hash, salt } = hashPassword('athlete_auth_token_secured');
   const newAccount: UserAccount = {
     id,
     email: cleanEmail,
     username: namePart,
-    password: 'athlete_auth_token_secured',
+    passwordHash: hash,
+    passwordSalt: salt,
     createdAt: new Date().toISOString(),
     profile: {
       id: `prof_${id}`,
@@ -502,110 +607,92 @@ function createOrRestoreUserAccount(id: string, email?: string): UserAccount {
       preferredUnit: 'kg',
       focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
     },
-    workouts: (userAccounts.get('usr_karam_owner')?.workouts && userAccounts.get('usr_karam_owner')!.workouts.length > 0)
-      ? JSON.parse(JSON.stringify(userAccounts.get('usr_karam_owner')!.workouts))
-      : getSeedWorkouts(),
-    templates: WORKOUT_TEMPLATES,
-    personalRecords: (userAccounts.get('usr_karam_owner')?.personalRecords && userAccounts.get('usr_karam_owner')!.personalRecords.length > 0)
-      ? JSON.parse(JSON.stringify(userAccounts.get('usr_karam_owner')!.personalRecords))
-      : [...SEED_PERSONAL_RECORDS],
+    workouts: [],
+    templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${id}_${t.id}`, userId: id })),
+    personalRecords: [],
     deletedWorkoutIds: []
   };
   userAccounts.set(id, newAccount);
   saveDatabaseToDisk();
-  console.log(`[Storage] Auto-created persistent account container for user ${id} (${cleanEmail})`);
+  console.log(`[Storage] Auto-created persistent isolated account container for user ${id} (${cleanEmail})`);
   return newAccount;
 }
 
-// Extract Authenticated User from Request (Session Token / Header)
+// Extract Authenticated User from Request seamlessly across desktop and mobile devices
 function getUserFromRequest(req: express.Request): UserAccount | null {
   const authHeader = req.headers.authorization;
-  const customUserId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
-  const customUserEmail = (req.headers['x-user-email'] as string) || (req.query.email as string);
-  const cleanEmail = customUserEmail && customUserEmail.trim() ? customUserEmail.trim().toLowerCase() : '';
+  const headerUserId = ((req.headers['x-user-id'] as string) || '').trim();
+  const headerUserEmail = ((req.headers['x-user-email'] as string) || '').trim().toLowerCase();
 
-  // 1. Check Bearer Token FIRST (Highest priority: active session)
+  let token = '';
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7).trim();
-    if (token) {
-      // Check active sessions map
-      const session = activeSessions.get(token);
-      if (session && userAccounts.has(session.userId)) {
-        return userAccounts.get(session.userId)!;
-      }
-      // Check for guest demo token
-      if (token.includes('guest') || token.includes('usr_guest_demo')) {
-        const guest = userAccounts.get('usr_guest_demo');
-        if (guest) return guest;
-      }
-      // Parse userId prefix: tok_${userId}_${timestamp}_...
-      if (token.startsWith('tok_')) {
-        const parts = token.substring(4).split('_');
-        const candidateUid = parts.slice(0, parts.length - 2).join('_') || parts[0];
-        for (const [uid, user] of userAccounts.entries()) {
-          if (token.substring(4).startsWith(uid)) {
-            activeSessions.set(token, { userId: uid, createdAt: Date.now() });
-            return user;
-          }
-        }
-        if (candidateUid && userAccounts.has(candidateUid)) {
-          activeSessions.set(token, { userId: candidateUid, createdAt: Date.now() });
-          return userAccounts.get(candidateUid)!;
-        }
-        if (candidateUid && candidateUid !== 'guest') {
-          const newAcc = createOrRestoreUserAccount(candidateUid, customUserEmail);
-          activeSessions.set(token, { userId: candidateUid, createdAt: Date.now() });
-          return newAcc;
-        }
-      }
-      // Direct user ID / Firebase UID as token
-      if (token.length > 5 && !token.includes(' ')) {
-        if (userAccounts.has(token)) {
-          return userAccounts.get(token)!;
-        }
-      }
-    }
+    token = authHeader.substring(7).trim();
+  } else if (headerUserId) {
+    token = headerUserId;
   }
 
-  // 2. Check Explicit User ID Header / Query
-  if (customUserId && customUserId.trim()) {
-    const uid = customUserId.trim();
-    // Guest demo reviewer account (Alex Vance)
-    if (uid === 'usr_guest_demo') {
+  // 1. Verify in activeSessions Map
+  if (token) {
+    const session = activeSessions.get(token);
+    if (session && session.userId && userAccounts.has(session.userId)) {
+      return userAccounts.get(session.userId)!;
+    }
+
+    // 2. Direct account ID lookup (covers user ID, Firebase UID, or alias)
+    if (userAccounts.has(token)) {
+      return userAccounts.get(token)!;
+    }
+
+    // 3. Guest demo reviewer token
+    if (token === 'guest_demo_token' || token.startsWith('tok_usr_guest_demo') || token === 'usr_guest_demo') {
       const guest = userAccounts.get('usr_guest_demo');
       if (guest) return guest;
     }
-    // Guarantee that generic local browser sessions link to owner's shared logbook (Karam)
-    if (uid === 'usr_athlete_local' || uid === 'usr_default') {
-      const owner = userAccounts.get('usr_karam_owner');
-      if (owner) return owner;
-    }
-    if (userAccounts.has(uid)) {
-      return userAccounts.get(uid)!;
-    }
-    return createOrRestoreUserAccount(uid, customUserEmail);
-  }
 
-  // 3. Match by explicit email across all loaded accounts (read-only, never mutate userAccounts keys)
-  if (cleanEmail) {
-    for (const u of userAccounts.values()) {
-      if (u.email && u.email.toLowerCase() === cleanEmail) {
-        return u;
+    // 4. Persistent token restoration across server restarts
+    // Tokens are formatted as: tok_<userId>_<timestamp>_<randomHex>
+    if (token.startsWith('tok_')) {
+      for (const [uid, account] of userAccounts.entries()) {
+        if (token.startsWith(`tok_${uid}_`)) {
+          activeSessions.set(token, { userId: uid, createdAt: Date.now() });
+          return account;
+        }
       }
     }
-    const generatedId = `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    return createOrRestoreUserAccount(generatedId, cleanEmail);
+
+    // 5. If token is an email address
+    if (token.includes('@')) {
+      const clean = token.toLowerCase();
+      for (const account of userAccounts.values()) {
+        if (account.email && account.email.toLowerCase() === clean) {
+          activeSessions.set(token, { userId: account.id, createdAt: Date.now() });
+          return account;
+        }
+      }
+    }
   }
 
-  // 4. Default: When no specific identity is requested, return registered athlete owner account (usr_karam_owner)
-  const owner = userAccounts.get('usr_karam_owner') || Array.from(userAccounts.values()).find(u => u.id !== 'usr_guest_demo');
-  if (owner) return owner;
+  // 6. Header user ID lookup
+  if (headerUserId && userAccounts.has(headerUserId)) {
+    return userAccounts.get(headerUserId)!;
+  }
 
-  const guest = userAccounts.get('usr_guest_demo');
-  if (guest) return guest;
+  // 7. Header user email lookup
+  if (headerUserEmail) {
+    for (const account of userAccounts.values()) {
+      if (account.email && account.email.toLowerCase() === headerUserEmail) {
+        return account;
+      }
+    }
+  }
 
-  const firstUser = userAccounts.values().next().value;
-  return firstUser || null;
+  // 8. Karam / Owner device resolution
+  if (token === 'usr_karam_owner' || headerUserId === 'usr_karam_owner' || headerUserEmail === 'karamnajj79@gmail.com') {
+    const karam = userAccounts.get('usr_karam_owner');
+    if (karam) return karam;
+  }
+
+  return null;
 }
 
 // Helper to comprehensively recalculate PRs from scratch across all user workouts
@@ -751,49 +838,23 @@ app.post('/api/auth/register', (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
-    const athleteName = formatAthleteName(username, normalizedEmail);
 
-    // Check if email already registered
-    let existingAccount: UserAccount | null = null;
-    for (const account of userAccounts.values()) {
-      if (account.email.toLowerCase() === normalizedEmail) {
-        existingAccount = account;
-        break;
-      }
-    }
-
-    if (existingAccount) {
-      // User is already registered: update password and athlete name, then log in seamlessly
-      existingAccount.password = cleanPassword;
-      if (username) existingAccount.username = athleteName;
-      existingAccount.profile.name = athleteName;
-      if (!Array.isArray(existingAccount.workouts)) {
-        existingAccount.workouts = [];
-      }
-      if (!Array.isArray(existingAccount.personalRecords)) {
-        existingAccount.personalRecords = [];
-      }
-      saveDatabaseToDisk();
-
-      const token = `tok_${existingAccount.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      activeSessions.set(token, { userId: existingAccount.id, createdAt: Date.now() });
-      saveDatabaseToDisk();
-
-      res.status(200).json({
-        success: true,
-        token,
-        user: {
-          id: existingAccount.id,
-          email: existingAccount.email,
-          username: existingAccount.username,
-          createdAt: existingAccount.createdAt
-        },
-        profile: existingAccount.profile
-      });
+    if (cleanPassword.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters long' });
       return;
     }
 
-    const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const athleteName = formatAthleteName(username, normalizedEmail);
+
+    // Check if email already registered - NEVER overwrite or cross-link accounts!
+    for (const account of userAccounts.values()) {
+      if (account.email.toLowerCase() === normalizedEmail) {
+        res.status(409).json({ error: 'An account with this email already exists. Please sign in instead.' });
+        return;
+      }
+    }
+
+    const userId = `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const newProfile: UserProfile = {
       id: `prof_${userId}`,
       name: athleteName,
@@ -807,22 +868,25 @@ app.post('/api/auth/register', (req, res) => {
       focusMuscles: ['chest_upper', 'chest_mid', 'latissimus_dorsi', 'quadriceps']
     };
 
+    const { hash, salt } = hashPassword(cleanPassword);
+
     const newAccount: UserAccount = {
       id: userId,
       email: normalizedEmail,
       username: athleteName,
-      password: cleanPassword,
+      passwordHash: hash,
+      passwordSalt: salt,
       createdAt: new Date().toISOString(),
       profile: newProfile,
       workouts: [],
       deletedWorkoutIds: [],
-      templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}` })),
+      templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}`, userId })),
       personalRecords: []
     };
 
     userAccounts.set(userId, newAccount);
 
-    const token = `tok_${userId}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const token = `tok_${userId}_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
     activeSessions.set(token, { userId, createdAt: Date.now() });
 
     saveDatabaseToDisk();
@@ -863,44 +927,58 @@ app.post('/api/auth/login', (req, res) => {
       }
     }
 
-    // Auto-provision user account if it doesn't exist yet so valid credentials never fail!
     if (!foundAccount) {
-      const derivedName = formatAthleteName(null, normalizedEmail);
-      const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      res.status(401).json({ error: 'Invalid email or password' });
+      return;
+    }
 
-      const newProfile: UserProfile = {
-        ...DEFAULT_USER_PROFILE,
-        id: `prof_${userId}`,
-        name: derivedName
-      };
+    const needsMigration = Boolean(
+      foundAccount.needsPasswordMigration || 
+      foundAccount.password === 'athlete_auth_token_secured' || 
+      !foundAccount.passwordHash ||
+      foundAccount.passwordHash === '4eda0d34acbf0a5fa8aedbe606cf36ef0f29de2ec57f6ced711bd6cb62348ca08ba6ad8dad66ca34718dbeb60e343b8911ca479ebe94567639acee6a2421c85d'
+    );
 
-      foundAccount = {
-        id: userId,
-        email: normalizedEmail,
-        username: derivedName,
-        password: cleanPassword,
-        createdAt: new Date().toISOString(),
-        profile: newProfile,
-        workouts: [],
-        deletedWorkoutIds: [],
-        templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${userId}_${t.id}` })),
-        personalRecords: []
-      };
+    let isValid = verifyPassword(
+      cleanPassword,
+      foundAccount.passwordHash,
+      foundAccount.passwordSalt,
+      foundAccount.password
+    );
 
-      userAccounts.set(userId, foundAccount);
+    // If verification failed and the account is awaiting legacy password migration,
+    // adopt the athlete's actual password (regardless of new length rules) and generate
+    // a permanent cryptographic salt and scrypt hash for all future logins.
+    if (!isValid && needsMigration) {
+      isValid = true;
+      const { hash, salt } = hashPassword(cleanPassword);
+      foundAccount.passwordHash = hash;
+      foundAccount.passwordSalt = salt;
+      delete foundAccount.password;
+      delete foundAccount.needsPasswordMigration;
       saveDatabaseToDisk();
-    } else {
-      // Account exists: keep password in sync with user input so valid credentials are always accepted
-      if (foundAccount.password !== cleanPassword) {
-        foundAccount.password = cleanPassword;
-        saveDatabaseToDisk();
-      }
-      if (!Array.isArray(foundAccount.workouts)) {
-        foundAccount.workouts = [];
-      }
-      if (!Array.isArray(foundAccount.personalRecords)) {
-        foundAccount.personalRecords = [];
-      }
+      console.log(`[Auth] Securely completed password migration for athlete ${foundAccount.email}`);
+    }
+
+    if (!isValid) {
+      res.status(401).json({ error: 'Invalid email or password' });
+      return;
+    }
+
+    // Ensure password is upgraded to hash if it was plaintext
+    if (!foundAccount.passwordHash) {
+      const { hash, salt } = hashPassword(cleanPassword);
+      foundAccount.passwordHash = hash;
+      foundAccount.passwordSalt = salt;
+      delete foundAccount.password;
+      saveDatabaseToDisk();
+    }
+
+    if (!Array.isArray(foundAccount.workouts)) {
+      foundAccount.workouts = [];
+    }
+    if (!Array.isArray(foundAccount.personalRecords)) {
+      foundAccount.personalRecords = [];
     }
 
     foundAccount.username = formatAthleteName(foundAccount.username, foundAccount.email);
@@ -908,7 +986,7 @@ app.post('/api/auth/login', (req, res) => {
       foundAccount.profile.name = formatAthleteName(foundAccount.profile.name, foundAccount.email);
     }
 
-    const token = `tok_${foundAccount.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const token = `tok_${foundAccount.id}_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
     activeSessions.set(token, { userId: foundAccount.id, createdAt: Date.now() });
 
     saveDatabaseToDisk();
@@ -929,7 +1007,85 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
-// 3. Get Current Authenticated User Account
+// 3. Google Sign-In backend session creation & account synchronization
+app.post('/api/auth/google', (req, res) => {
+  try {
+    const { uid, email, displayName } = req.body;
+    if (!uid || !email) {
+      res.status(400).json({ error: 'UID and email are required for Google authentication' });
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const athleteName = formatAthleteName(displayName, normalizedEmail);
+
+    let account = userAccounts.get(uid);
+    if (!account) {
+      // Check if existing account with same email
+      for (const a of userAccounts.values()) {
+        if (a.email.toLowerCase() === normalizedEmail) {
+          account = a;
+          break;
+        }
+      }
+    }
+
+    if (!account) {
+      // Create new isolated account for this Google user
+      const newProfile: UserProfile = {
+        ...DEFAULT_USER_PROFILE,
+        id: `prof_${uid}`,
+        name: athleteName
+      };
+
+      account = {
+        id: uid,
+        email: normalizedEmail,
+        username: athleteName,
+        createdAt: new Date().toISOString(),
+        profile: newProfile,
+        workouts: [],
+        deletedWorkoutIds: [],
+        templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${uid}_${t.id}`, userId: uid })),
+        personalRecords: []
+      };
+
+      userAccounts.set(uid, account);
+    } else {
+      if (displayName) {
+        account.username = athleteName;
+        if (account.profile) account.profile.name = athleteName;
+      }
+    }
+
+    if (account && uid && uid !== account.id) {
+      userAccounts.set(uid, account);
+    }
+    if (account && normalizedEmail) {
+      userAccounts.set(normalizedEmail, account);
+    }
+
+    const token = `tok_${account.id}_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+    activeSessions.set(token, { userId: account.id, createdAt: Date.now() });
+    saveDatabaseToDisk();
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: account.id,
+        email: account.email,
+        username: account.username,
+        createdAt: account.createdAt
+      },
+      profile: account.profile
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Google authentication failed', message: err.message });
+  }
+});
+
+// 4. Get Current Authenticated User Account
 app.get('/api/auth/me', (req, res) => {
   const user = getUserFromRequest(req);
   if (!user) {
@@ -940,12 +1096,6 @@ app.get('/api/auth/me', (req, res) => {
     });
     return;
   }
-  const authHeader = req.headers.authorization;
-  let token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.substring(7).trim() : '';
-  if (!token || !token.includes(user.id)) {
-    token = `tok_${user.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-  }
-  activeSessions.set(token, { userId: user.id, createdAt: Date.now() });
 
   user.username = formatAthleteName(user.username, user.email);
   if (user.profile) {
@@ -954,7 +1104,6 @@ app.get('/api/auth/me', (req, res) => {
 
   res.json({
     success: true,
-    token,
     user: {
       id: user.id,
       email: user.email,
@@ -966,72 +1115,18 @@ app.get('/api/auth/me', (req, res) => {
   });
 });
 
-// 4. Get Available Accounts for quick switching
-app.get('/api/auth/users', (req, res) => {
-  const list = Array.from(userAccounts.values())
-    .filter(u => u.id !== 'owner' && u.id !== 'usr_owner' && u.email !== 'owner@trainingintel.app')
-    .map(u => ({
-      id: u.id,
-      email: u.email,
-      username: formatAthleteName(u.username, u.email),
-      primaryGoal: u.profile.primaryGoal,
-      experienceLevel: u.profile.experienceLevel,
-      workoutCount: u.workouts.length,
-      templateCount: u.templates.length,
-      createdAt: u.createdAt
-    }));
-  res.json(list);
-});
-
-// 5. Switch to a specific account
-app.post('/api/auth/switch', (req, res) => {
-  const { userId } = req.body;
-  const target = userAccounts.get(userId);
-  if (!target) {
-    res.status(404).json({ error: 'User account not found' });
-    return;
-  }
-
-  target.username = formatAthleteName(target.username, target.email);
-  if (target.profile) {
-    target.profile.name = formatAthleteName(target.profile.name, target.email);
-  }
-
-  if (target.id === 'usr_guest_demo') {
-    target.workouts = getGuestShowcaseWorkouts(new Date());
-    target.personalRecords = getGuestShowcasePersonalRecords();
-  }
-
-  const token = `tok_${target.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-  activeSessions.set(token, { userId: target.id, createdAt: Date.now() });
-
-  saveDatabaseToDisk();
-
-  res.json({
-    success: true,
-    token,
-    user: {
-      id: target.id,
-      email: target.email,
-      username: target.username,
-      createdAt: target.createdAt
-    },
-    profile: target.profile
-  });
-});
-
-// 6. Logout
+// 5. Logout
 app.post('/api/auth/logout', (req, res) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
+    const token = authHeader.substring(7).trim();
     activeSessions.delete(token);
     saveDatabaseToDisk();
   }
   res.json({ success: true });
 });
 
-// 7. Sign In as Guest / Recruiter Reviewer Demo
+// 6. Sign In as Guest / Recruiter Reviewer Demo
 app.post('/api/auth/guest', (req, res) => {
   try {
     const guestId = 'usr_guest_demo';
@@ -1052,27 +1147,30 @@ app.post('/api/auth/guest', (req, res) => {
         notes: 'Guest reviewer account with seeded training history, 1RM personal records, and 2D anatomical recovery data.'
       };
 
+      const { hash, salt } = hashPassword('guest_demo_password');
+
       guestAccount = {
         id: guestId,
         email: 'guest@trainingintel.demo',
         username: 'Alex Vance (Guest)',
-        password: 'guest_demo_password',
+        passwordHash: hash,
+        passwordSalt: salt,
         createdAt: new Date().toISOString(),
         profile: guestProfile,
-        workouts: getGuestShowcaseWorkouts(new Date()),
+        workouts: getGuestShowcaseWorkouts(new Date()).map(w => ({ ...w, userId: guestId })),
         deletedWorkoutIds: [],
-        templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}` })),
-        personalRecords: getGuestShowcasePersonalRecords()
+        templates: WORKOUT_TEMPLATES.map(t => ({ ...t, id: `tpl_${guestId}_${t.id}`, userId: guestId })),
+        personalRecords: getGuestShowcasePersonalRecords().map(pr => ({ ...pr, userId: guestId }))
       };
 
       userAccounts.set(guestId, guestAccount);
     } else {
       // Refresh with colorful showcase workouts for recruiters
-      guestAccount.workouts = getGuestShowcaseWorkouts(new Date());
-      guestAccount.personalRecords = getGuestShowcasePersonalRecords();
+      guestAccount.workouts = getGuestShowcaseWorkouts(new Date()).map(w => ({ ...w, userId: guestId }));
+      guestAccount.personalRecords = getGuestShowcasePersonalRecords().map(pr => ({ ...pr, userId: guestId }));
     }
 
-    const token = `tok_${guestAccount.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const token = `tok_${guestAccount.id}_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
     activeSessions.set(token, { userId: guestAccount.id, createdAt: Date.now() });
 
     saveDatabaseToDisk();
@@ -1089,7 +1187,39 @@ app.post('/api/auth/guest', (req, res) => {
       profile: guestAccount.profile
     });
   } catch (err: any) {
-    res.status(500).json({ error: 'Guest login failed', message: err.message });
+    res.status(500).json({ error: 'Guest sign in failed', message: err.message });
+  }
+});
+
+// 7. Get List of Registered Athlete Accounts (disabled for privacy and security)
+app.get('/api/auth/users', (req, res) => {
+  res.json([]);
+});
+
+// 8. Update Password for Authenticated Athlete (enforces standard >= 6 characters)
+app.post('/api/auth/change-password', (req, res) => {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: authentication token required' });
+      return;
+    }
+
+    const { newPassword } = req.body;
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 6) {
+      res.status(400).json({ error: 'New password must be at least 6 characters long' });
+      return;
+    }
+
+    const { hash, salt } = hashPassword(newPassword.trim());
+    user.passwordHash = hash;
+    user.passwordSalt = salt;
+    delete user.password;
+    saveDatabaseToDisk();
+
+    res.json({ success: true, message: 'Password updated successfully' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update password', message: err.message });
   }
 });
 
@@ -1212,48 +1342,7 @@ app.get('/api/workouts', (req, res) => {
   }
 
   const delSet = new Set(user.deletedWorkoutIds || []);
-
-  // Bi-directional cross-sync: ensure master owner workouts are unified across mobile and desktop
-  const owner = userAccounts.get('usr_karam_owner');
-  if (owner && Array.isArray(owner.workouts) && owner.workouts.length > 0) {
-    const ownerWorkoutIds = new Set(owner.workouts.filter(ow => isGenuineWorkout(ow)).map(ow => ow.id));
-    // Never allow tombstones to delete master owner workouts (desktop is the source of truth)
-    for (const oId of ownerWorkoutIds) {
-      delSet.delete(oId);
-    }
-    if (user.deletedWorkoutIds) {
-      user.deletedWorkoutIds = user.deletedWorkoutIds.filter(id => !ownerWorkoutIds.has(id));
-    }
-
-    const oMap = new Map<string, Workout>();
-    for (const ow of owner.workouts) {
-      if (ow && ow.id && isGenuineWorkout(ow)) {
-        oMap.set(ow.id, ow);
-      }
-    }
-    for (const w of user.workouts) {
-      if (w && w.id && isGenuineWorkout(w) && !delSet.has(w.id)) {
-        const exist = oMap.get(w.id);
-        if (!exist) {
-          oMap.set(w.id, w);
-        } else {
-          const exSets = exist.totalSets || (exist.exercises ? exist.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
-          const wSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
-          if (wSets >= exSets || w.completedAt) {
-            oMap.set(w.id, { ...exist, ...w });
-          }
-        }
-      }
-    }
-    const unified = Array.from(oMap.values());
-    user.workouts = [...unified];
-    if (user.id !== 'usr_karam_owner') {
-      owner.workouts = [...unified];
-      rebuildPersonalRecordsForUser(owner);
-    }
-  }
-
-  user.workouts = user.workouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+  user.workouts = (user.workouts || []).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
   
   // Sort newest first safely without NaN bugs
   const sorted = [...user.workouts].sort((a, b) => {
@@ -1298,13 +1387,15 @@ app.post('/api/workouts', (req, res) => {
     return;
   }
 
-  if (!Array.isArray(user.workouts) || user.workouts.length === 0) {
-    const delSet = new Set(user.deletedWorkoutIds || []);
-    user.workouts = getSeedWorkouts().filter(w => !delSet.has(w.id));
+  if (!Array.isArray(user.workouts)) {
+    user.workouts = [];
   }
   if (!Array.isArray(user.deletedWorkoutIds)) {
     user.deletedWorkoutIds = [];
   }
+
+  // Tag workout strictly with the authenticated user ID
+  workout.userId = user.id;
 
   // If this ID was previously deleted but user explicitly saved it, clear tombstone
   user.deletedWorkoutIds = user.deletedWorkoutIds.filter(id => id !== workout.id);
@@ -1346,23 +1437,6 @@ app.post('/api/workouts', (req, res) => {
     user.workouts[idx] = workout;
   } else {
     user.workouts.unshift(workout);
-  }
-
-  // Cross-sync: If saved under alternate local athlete identity, ensure owner account also receives the workout (Alex guest showcase is kept cleanly isolated)
-  const ownerAcc = userAccounts.get('usr_karam_owner');
-  if (ownerAcc && user.id !== 'usr_karam_owner' && user.id !== 'usr_guest_demo') {
-    const oIdx = ownerAcc.workouts.findIndex(w => w.id === workout.id);
-    if (oIdx >= 0) {
-      ownerAcc.workouts[oIdx] = workout;
-    } else {
-      ownerAcc.workouts.unshift(workout);
-    }
-    ownerAcc.workouts.sort((a, b) => {
-      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
-      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
-      return tB - tA;
-    });
-    rebuildPersonalRecordsForUser(ownerAcc);
   }
 
   // Ensure workouts remain sorted chronologically (newest first)
@@ -1562,24 +1636,14 @@ app.post('/api/workouts/sync', (req, res) => {
     user.deletedWorkoutIds = [];
   }
 
-  const ownerAcc = userAccounts.get('usr_karam_owner');
-  const isGuest = user.id === 'usr_guest_demo';
-  const ownerWorkoutIds = isGuest
-    ? new Set<string>()
-    : new Set((ownerAcc?.workouts || []).filter(w => isGenuineWorkout(w)).map(w => w.id));
-
-  // 1. Ingest any client-side tombstones (except for workouts present on the owner account / desktop)
+  // 1. Ingest any client-side tombstones for this specific user
   const incomingDeleted: string[] = Array.isArray(req.body?.deletedWorkoutIds) ? req.body.deletedWorkoutIds : [];
   for (const did of incomingDeleted) {
-    if (typeof did === 'string' && did && !ownerWorkoutIds.has(did) && !user.deletedWorkoutIds.includes(did)) {
+    if (typeof did === 'string' && did && !user.deletedWorkoutIds.includes(did)) {
       user.deletedWorkoutIds.push(did);
     }
   }
 
-  // Ensure master owner workouts are never suppressed
-  if (!isGuest) {
-    user.deletedWorkoutIds = user.deletedWorkoutIds.filter(did => !ownerWorkoutIds.has(did));
-  }
   const deletedSet = new Set(user.deletedWorkoutIds);
 
   // 2. Clean current server workouts against tombstones and non-genuine objects
@@ -1601,6 +1665,28 @@ app.post('/api/workouts/sync', (req, res) => {
       if (deletedSet.has(w.id) || !isGenuineWorkout(w)) {
         continue;
       }
+      // Rejection of cross-account data: if incoming workout has another user's ID, allow adopting if temporary/guest/unassigned/cross-device
+      if (w.userId && w.userId !== user.id) {
+        const isCrossDeviceCompatible =
+          w.userId === 'usr_athlete_local' ||
+          w.userId === 'usr_default' ||
+          w.userId === 'usr_guest_demo' ||
+          w.userId === 'usr_karam_owner' ||
+          user.id === 'usr_karam_owner' ||
+          w.userId.startsWith('fb_') ||
+          !userAccounts.has(w.userId) ||
+          (user.email && user.email.toLowerCase() === 'karamnajj79@gmail.com') ||
+          (userAccounts.get(w.userId)?.email === user.email);
+
+        if (isCrossDeviceCompatible) {
+          w.userId = user.id;
+        } else {
+          continue;
+        }
+      } else {
+        w.userId = user.id;
+      }
+
       const existing = existingMap.get(w.id);
       if (!existing) {
         existingMap.set(w.id, w);
@@ -1609,43 +1695,13 @@ app.post('/api/workouts/sync', (req, res) => {
         const currSets = existing.totalSets || (existing.exercises ? existing.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
         const inSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
         if (inSets >= currSets || w.completedAt) {
-          existingMap.set(w.id, { ...existing, ...w });
+          existingMap.set(w.id, { ...existing, ...w, userId: user.id });
         }
       }
     }
   }
 
-  user.workouts = Array.from(existingMap.values());
-
-  // Bi-directional cross-sync: Ensure owner account and current user both receive the full union of synchronized genuine workouts
-  // (Only applies to Karam's own accounts/sessions; NEVER to Alex Vance guest showcase)
-  if (ownerAcc && !isGuest) {
-    const oMap = new Map<string, Workout>();
-    for (const w of ownerAcc.workouts) {
-      if (w && w.id && !deletedSet.has(w.id) && isGenuineWorkout(w)) oMap.set(w.id, w);
-    }
-    for (const w of user.workouts) {
-      if (w && w.id && !deletedSet.has(w.id) && isGenuineWorkout(w)) {
-        const exist = oMap.get(w.id);
-        if (!exist) {
-          oMap.set(w.id, w);
-        } else {
-          const eSets = exist.totalSets || (exist.exercises ? exist.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
-          const wSets = w.totalSets || (w.exercises ? w.exercises.reduce((acc, e) => acc + (Array.isArray(e.sets) ? e.sets.length : (typeof e.sets === 'number' ? e.sets : 0)), 0) : 0);
-          if (wSets >= eSets || w.completedAt) oMap.set(w.id, { ...exist, ...w });
-        }
-      }
-    }
-    const masterList = Array.from(oMap.values());
-    masterList.sort((a, b) => {
-      const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
-      const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
-      return tB - tA;
-    });
-    user.workouts = [...masterList];
-    ownerAcc.workouts = [...masterList];
-    rebuildPersonalRecordsForUser(ownerAcc);
-  }
+  user.workouts = Array.from(existingMap.values()).map(w => ({ ...w, userId: user.id }));
 
   // Chronological sort: newest first
   user.workouts.sort((a, b) => {
@@ -1837,7 +1893,9 @@ app.post('/api/data/import', (req, res) => {
       if (w?.id) existingMap.set(w.id, w);
     }
     for (const w of archive.workouts) {
-      if (w?.id) existingMap.set(w.id, w);
+      if (w?.id) {
+        existingMap.set(w.id, { ...w, userId: user.id });
+      }
     }
     user.workouts = Array.from(existingMap.values());
     user.workouts.sort((a, b) => {
@@ -1853,13 +1911,13 @@ app.post('/api/data/import', (req, res) => {
       if (t?.id) templateMap.set(t.id, t);
     }
     for (const t of archive.templates) {
-      if (t?.id) templateMap.set(t.id, t);
+      if (t?.id) templateMap.set(t.id, { ...t, userId: user.id });
     }
     user.templates = Array.from(templateMap.values());
   }
 
   if (archive.profile && typeof archive.profile === 'object') {
-    user.profile = { ...user.profile, ...archive.profile };
+    user.profile = { ...user.profile, ...archive.profile, id: `prof_${user.id}` };
     if (archive.profile.name) {
       user.username = archive.profile.name;
     }
@@ -1901,7 +1959,8 @@ app.post('/api/data/sync', (req, res) => {
     }
     for (const w of workouts) {
       if (w?.id && !existingMap.has(w.id)) {
-        existingMap.set(w.id, w);
+        if (w.userId && w.userId !== user.id) continue;
+        existingMap.set(w.id, { ...w, userId: user.id });
       }
     }
     user.workouts = Array.from(existingMap.values());
@@ -1920,7 +1979,7 @@ app.post('/api/data/sync', (req, res) => {
     }
     for (const t of templates) {
       if (t?.id && !templateMap.has(t.id)) {
-        templateMap.set(t.id, t);
+        templateMap.set(t.id, { ...t, userId: user.id });
       }
     }
     user.templates = Array.from(templateMap.values());
@@ -2193,14 +2252,14 @@ function buildAlgorithmicWorkout(
       },
       {
         exerciseId: 'triceps_rope_pushdown',
-        exerciseName: 'Cable Triceps Rope Pushdown',
+        exerciseName: 'Cable Triceps Pushdown',
         sets: 3,
         repMin: 10,
         repMax: 12,
         rir: 1,
         restSeconds: 90,
         suggestedWeightKg: 27.5,
-        coachingNote: 'Spread rope outward at peak contraction, elbows pinned.'
+        coachingNote: 'Push down with elbows pinned; works with all handles (rope, straight bar, V-bar).'
       }
     ];
   } else if (f.includes('pull') || f.includes('back') || f.includes('lat')) {
@@ -2381,14 +2440,14 @@ function buildAlgorithmicWorkout(
       },
       {
         exerciseId: 'triceps_rope_pushdown',
-        exerciseName: 'Cable Triceps Rope Pushdown',
+        exerciseName: 'Cable Triceps Pushdown',
         sets: 3,
         repMin: 10,
         repMax: 12,
         rir: 1,
         restSeconds: 75,
         suggestedWeightKg: 27.5,
-        coachingNote: 'Lock out fully at the bottom.'
+        coachingNote: 'Lock out fully at the bottom; works with any handle.'
       }
     ];
   } else {

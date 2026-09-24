@@ -65,29 +65,13 @@ export function WelcomeAuthView({
       const userEmail = fbUser.email || 'athlete@trainingintel.app';
       const displayName = formatAthleteName(fbUser.displayName, userEmail);
 
-      api.setSession(uid, uid, userEmail);
-
-      const authUser: AuthUser = {
-        id: uid,
+      const res = await api.loginWithGoogle({
+        uid,
         email: userEmail,
-        username: displayName,
-        createdAt: new Date().toISOString()
-      };
+        displayName
+      });
 
-      const userProfile: UserProfile = {
-        id: `prof_${uid}`,
-        name: displayName,
-        experienceLevel: 'intermediate',
-        primaryGoal: 'hypertrophy',
-        trainingDaysPerWeek: 4,
-        preferredDurationMinutes: 60,
-        availableEquipment: ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'],
-        weightUnit: 'kg',
-        preferredUnit: 'kg',
-        focusMuscles: ['latissimus_dorsi', 'chest_upper', 'chest_mid', 'quadriceps']
-      };
-
-      onAuthSuccess(authUser, userProfile);
+      onAuthSuccess(res.user, res.profile);
     } catch (err: any) {
       console.error('Google sign-in error:', err);
       setErrorMessage(err.message || 'Google sign-in could not be completed.');
@@ -269,7 +253,7 @@ export function WelcomeAuthView({
 
           {/* Sign In Form */}
           {tab === 'signin' && (
-            <form onSubmit={handleSignIn} className="space-y-4">
+            <form onSubmit={handleSignIn} className="space-y-4" autoComplete="off">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Email Address
@@ -278,6 +262,8 @@ export function WelcomeAuthView({
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="email"
+                    name="login_email"
+                    autoComplete="off"
                     required
                     placeholder="athlete@example.com"
                     value={email}
@@ -295,6 +281,8 @@ export function WelcomeAuthView({
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="password"
+                    name="login_password"
+                    autoComplete="new-password"
                     required
                     placeholder="••••••••"
                     value={password}
@@ -387,7 +375,7 @@ export function WelcomeAuthView({
 
           {/* Sign Up Form */}
           {tab === 'signup' && (
-            <form onSubmit={handleSignUp} className="space-y-3.5">
+            <form onSubmit={handleSignUp} className="space-y-3.5" autoComplete="off">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Athlete Name
@@ -396,6 +384,8 @@ export function WelcomeAuthView({
                   <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
+                    name="signup_name"
+                    autoComplete="off"
                     required
                     placeholder="e.g. Jordan Smith"
                     value={username}
@@ -413,6 +403,8 @@ export function WelcomeAuthView({
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="email"
+                    name="signup_email"
+                    autoComplete="off"
                     required
                     placeholder="athlete@example.com"
                     value={email}
@@ -430,6 +422,8 @@ export function WelcomeAuthView({
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="password"
+                    name="signup_password"
+                    autoComplete="new-password"
                     required
                     placeholder="••••••••"
                     value={password}

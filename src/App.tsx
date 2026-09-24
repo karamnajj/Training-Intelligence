@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Workout,
+  WorkoutExercise,
   WorkoutTemplate,
   UserProfile,
   PersonalRecord,
@@ -17,11 +18,21 @@ import { WORKOUT_TEMPLATES } from './lib/seedData';
 import {
   auth,
   subscribeToFirebaseAuth,
+  waitForFirebaseAuth,
+  signOutFromFirebase,
   getWorkoutsFromFirestore,
+  subscribeToWorkoutsFromFirestore,
   saveWorkoutToFirestore,
   getTemplatesFromFirestore,
   getUserProfileFromFirestore
 } from './lib/firebase';
+import {
+  getActiveWorkoutSession,
+  clearActiveWorkoutSession,
+  createAndSaveActiveSession,
+  sessionToPartialWorkout,
+  ActiveWorkoutSession
+} from './lib/activeWorkoutStorage';
 
 // Components
 import { Dashboard } from './components/dashboard/Dashboard';
@@ -35,6 +46,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { WelcomeAuthView } from './components/auth/WelcomeAuthView';
 import { AuthUser } from './types';
 import { formatAthleteName } from './lib/nameUtils';
+import { initGA, trackPageView, trackWorkoutStarted, trackWorkoutCompleted } from './lib/analytics';
 
 // Icons
 import {
@@ -56,10 +68,17 @@ import {
 } from 'lucide-react';
 
 export function App() {
-  // Navigation Tabs
+  // Navigation Tabs: If user reloads or page refreshes with an active workout, restore straight to workout!
+  const initialActiveSession = useMemo(() => getActiveWorkoutSession(), []);
+
   const [activeTab, setActiveTab] = useState<
     'dashboard' | 'workout' | 'ai' | 'history' | 'analytics' | 'templates'
-  >('dashboard');
+  >(() => {
+    if (initialActiveSession && initialActiveSession.id) {
+      return 'workout';
+    }
+    return 'dashboard';
+  });
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -74,8 +93,16 @@ export function App() {
   const [musclesData, setMusclesData] = useState<Record<MuscleId, MuscleExposureData> | null>(null);
   const [radar, setRadar] = useState<TrainingRadar | null>(null);
 
-  // Active workout staging state
-  const [activeWorkoutData, setActiveWorkoutData] = useState<Partial<Workout> | null>(null);
+  // Active workout staging state (restores saved workout data immediately on reload)
+  const [activeWorkoutData, setActiveWorkoutData] = useState<Partial<Workout> | null>(() => {
+    if (initialActiveSession && initialActiveSession.id) {
+      return sessionToPartialWorkout(initialActiveSession);
+    }
+    return null;
+  });
+
+  // Snapshot of persisted workout session for floating resume banner across tabs
+  const [persistedSession, setPersistedSession] = useState<ActiveWorkoutSession | null>(() => getActiveWorkoutSession());
 
   // Modals & Preferences
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -85,18 +112,59 @@ export function App() {
 
   // Load initial backend state with instant local vault restore
   const loadData = async () => {
-    // Standardize identity: ensure unauthenticated sessions bind to usr_karam_owner while preserving usr_guest_demo
-    try {
-      const savedUid = localStorage.getItem('training_intel_user_id');
-      if (!savedUid || savedUid === 'usr_athlete_local' || savedUid === 'usr_default') {
-        localStorage.setItem('training_intel_user_id', 'usr_karam_owner');
-        localStorage.setItem('training_intel_user_email', 'karamnajj79@gmail.com');
-        localStorage.setItem('training_intel_user_name', 'Karam');
-        api.setSession(localStorage.getItem('training_intel_token') || 'tok_owner', 'usr_karam_owner', 'karamnajj79@gmail.com');
-      }
-    } catch {}
+    let savedUid = localStorage.getItem('training_intel_user_id');
 
-    // Phase 1: Instant Local Restore with Sanitization
+    // If unauthenticated (no saved user id, or legacy dummy), do NOT auto-assign Karam!
+    if (!savedUid || savedUid === 'usr_athlete_local' || savedUid === 'usr_default') {
+      try {
+        const fbUser = await waitForFirebaseAuth(1200);
+        if (fbUser) {
+          savedUid = fbUser.uid;
+          const userEmail = fbUser.email || '';
+          api.setSession(savedUid, savedUid, userEmail);
+          localStorage.setItem('training_intel_user_id', savedUid);
+          if (userEmail) localStorage.setItem('training_intel_user_email', userEmail);
+        } else {
+          // Check backend /api/auth/me to see if a valid session exists
+          const authData = await api.getMe();
+          if (authData && authData.user) {
+            savedUid = authData.user.id;
+            api.setSession(api.getToken() || authData.user.id, authData.user.id, authData.user.email);
+            localStorage.setItem('training_intel_user_id', savedUid);
+            if (authData.user.email) localStorage.setItem('training_intel_user_email', authData.user.email);
+          } else {
+            // Truly unauthenticated session: keep isolated, show sign-in gate
+            setCurrentUser(null);
+            setProfile(null);
+            setWorkouts([]);
+            setTemplates([]);
+            setPersonalRecords([]);
+            setMusclesData(null);
+            setRadar(null);
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch {
+        setCurrentUser(null);
+        setProfile(null);
+        setWorkouts([]);
+        setTemplates([]);
+        setPersonalRecords([]);
+        setMusclesData(null);
+        setRadar(null);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    const activeUid = savedUid;
+    if (!activeUid) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Phase 1: Instant Local Restore with Sanitization for the active user
     try {
       // Clean out any corrupted or template entries before loading
       await storageVault.purgeInvalidWorkouts();
@@ -109,16 +177,15 @@ export function App() {
         storageVault.getRecords()
       ]);
 
-      const activeUid = localStorage.getItem('training_intel_user_id') || 'usr_karam_owner';
       const isGuest = activeUid === 'usr_guest_demo';
 
-      if (cachedUser && (cachedUser.id === activeUid || (isGuest && cachedUser.id === 'usr_guest_demo'))) {
+      if (cachedUser && cachedUser.id === activeUid) {
         const cleanName = formatAthleteName(cachedUser.username, cachedUser.email);
         const resolvedUser = { ...cachedUser, username: cleanName };
         setCurrentUser(resolvedUser);
       } else {
-        const savedEmail = localStorage.getItem('training_intel_user_email') || (isGuest ? 'guest@trainingintel.demo' : 'karamnajj79@gmail.com');
-        const savedName = localStorage.getItem('training_intel_user_name') || (isGuest ? 'Alex Vance (Guest)' : 'Karam');
+        const savedEmail = localStorage.getItem('training_intel_user_email') || (isGuest ? 'guest@trainingintel.demo' : '');
+        const savedName = localStorage.getItem('training_intel_user_name') || (isGuest ? 'Alex Vance (Guest)' : '');
         const cleanName = formatAthleteName(savedName, savedEmail);
         const autoUser: AuthUser = {
           id: activeUid,
@@ -205,6 +272,8 @@ export function App() {
     window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleOnline);
 
+    let unsubscribeRealtimeWorkouts: (() => void) | null = null;
+
     // Continuous Firebase Auth sync to preserve user data across app reloads and republishes
     const unsubscribe = subscribeToFirebaseAuth(async (fbUser) => {
       // If user has switched to the Guest Demo account, do not overwrite the session with Firebase
@@ -229,6 +298,31 @@ export function App() {
 
         setCurrentUser(authUser);
         storageVault.saveUser(authUser).catch(() => {});
+
+        // Attach live real-time subscription for instant cross-device sync
+        if (unsubscribeRealtimeWorkouts) {
+          unsubscribeRealtimeWorkouts();
+          unsubscribeRealtimeWorkouts = null;
+        }
+
+        unsubscribeRealtimeWorkouts = subscribeToWorkoutsFromFirestore(uid, async (realtimeWorkouts) => {
+          if (!Array.isArray(realtimeWorkouts)) return;
+          const delSet = getDeletedWorkoutIds();
+          const cleanWorkouts = realtimeWorkouts.filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+          cleanWorkouts.sort((a, b) => {
+            const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+            const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+            return tB - tA;
+          });
+
+          if (cleanWorkouts.length > 0) {
+            setWorkouts(cleanWorkouts);
+            setMusclesData(calculateMuscleExposures(cleanWorkouts, EXERCISES_MAP));
+            setRadar(buildTrainingRadar(cleanWorkouts, EXERCISES_MAP));
+            storageVault.saveWorkouts(cleanWorkouts).catch(() => {});
+            api.syncWorkouts(cleanWorkouts).catch(() => {});
+          }
+        });
 
         // Fetch fresh Firestore data and sync
         try {
@@ -307,9 +401,28 @@ export function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleOnline);
+      if (unsubscribeRealtimeWorkouts) unsubscribeRealtimeWorkouts();
       unsubscribe();
     };
   }, []);
+
+  // Google Analytics 4 (GA4) - Initialize tag on mount
+  useEffect(() => {
+    initGA();
+  }, []);
+
+  // Google Analytics 4 (GA4) - Track view changes
+  useEffect(() => {
+    const tabTitles: Record<string, string> = {
+      dashboard: 'Dashboard',
+      workout: 'Log Workout',
+      ai: 'AI Coach',
+      history: 'Workout History',
+      analytics: 'Analytics & Overload',
+      templates: 'Workout Templates'
+    };
+    trackPageView(activeTab, `Training Intelligence | ${tabTitles[activeTab] || activeTab}`);
+  }, [activeTab]);
 
   // Dark mode HTML class toggle
   useEffect(() => {
@@ -320,19 +433,54 @@ export function App() {
     }
   }, [isDarkMode]);
 
+  // Periodic check for active workout session to keep floating banner in sync
+  useEffect(() => {
+    const checkActiveSession = () => {
+      setPersistedSession(getActiveWorkoutSession());
+    };
+    checkActiveSession();
+    const interval = setInterval(checkActiveSession, 2000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
+
+  // Warn if user attempts to refresh or close tab during an ongoing workout
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const activeSession = getActiveWorkoutSession();
+      if (activeSession && activeSession.id) {
+        e.preventDefault();
+        e.returnValue = 'You have a workout in progress. Reloading will resume your session.';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   // Workout launching helpers
   const handleStartBlankWorkout = () => {
-    setActiveWorkoutData({
-      name: `Workout #${workouts.length + 1}`,
+    const existing = getActiveWorkoutSession();
+    if (existing && existing.id) {
+      setActiveWorkoutData(sessionToPartialWorkout(existing));
+      setActiveTab('workout');
+      return;
+    }
+    const name = `Workout #${workouts.length + 1}`;
+    trackWorkoutStarted(name, 'blank');
+    const newSession = createAndSaveActiveSession({
+      name,
       startedAt: new Date().toISOString(),
       exercises: []
     });
+    setPersistedSession(newSession);
+    setActiveWorkoutData(sessionToPartialWorkout(newSession));
     setActiveTab('workout');
   };
 
   const handleStartRecommendedWorkout = () => {
     if (!radar) return;
     const rec = radar.suggestedFocusToday;
+    trackWorkoutStarted(rec?.title || 'Recommended Split', 'recommended');
 
     // Instantly generate customized, anatomically aligned workout session
     const plan = generateRecommendedWorkoutSession(radar);
@@ -340,85 +488,101 @@ export function App() {
   };
 
   const handleStartTemplate = (template: WorkoutTemplate) => {
-    setActiveWorkoutData({
+    trackWorkoutStarted(template.name, template.id);
+    const exercises: WorkoutExercise[] = template.exercises.map((e, idx) => ({
+      id: `we_${Date.now()}_${idx}`,
+      exerciseId: e.exerciseId,
+      exerciseName: e.exerciseName,
+      targetRestSeconds: e.restSeconds,
+      sets: Array.from({ length: e.targetSets || e.sets || 3 }).map((_, sIdx) => ({
+        id: `s_${Date.now()}_${idx}_${sIdx}`,
+        setNumber: sIdx + 1,
+        type: 'normal',
+        weightKg: 40,
+        reps: e.repMin || 10,
+        completed: false
+      }))
+    }));
+    const newSession = createAndSaveActiveSession({
       name: template.name,
       startedAt: new Date().toISOString(),
-      exercises: template.exercises.map((e, idx) => ({
-        id: `we_${Date.now()}_${idx}`,
-        exerciseId: e.exerciseId,
-        exerciseName: e.exerciseName,
-        targetRestSeconds: e.restSeconds,
-        sets: Array.from({ length: e.targetSets || e.sets || 3 }).map((_, sIdx) => ({
-          id: `s_${Date.now()}_${idx}_${sIdx}`,
-          setNumber: sIdx + 1,
-          type: 'normal',
-          weightKg: 40,
-          reps: e.repMin || 10,
-          completed: false
-        }))
-      }))
+      exercises
     });
+    setPersistedSession(newSession);
+    setActiveWorkoutData(sessionToPartialWorkout(newSession));
     setActiveTab('workout');
   };
 
   const handleStartGeneratedPlan = (plan: AIWorkoutPlan) => {
-    setActiveWorkoutData({
-      name: plan.name,
-      startedAt: new Date().toISOString(),
-      notes: plan.rationale,
-      exercises: plan.exercises.map((e, idx) => ({
-        id: `we_${Date.now()}_${idx}`,
-        exerciseId: e.exerciseId,
-        exerciseName: e.exerciseName,
-        targetRestSeconds: e.restSeconds,
-        sets: Array.from({ length: e.sets || 3 }).map((_, sIdx) => ({
-          id: `s_${Date.now()}_${idx}_${sIdx}`,
-          setNumber: sIdx + 1,
-          type: 'normal',
-          weightKg: e.suggestedWeightKg || 30,
-          reps: e.repMin || 8,
-          completed: false
-        }))
+    const exercises: WorkoutExercise[] = plan.exercises.map((e, idx) => ({
+      id: `we_${Date.now()}_${idx}`,
+      exerciseId: e.exerciseId,
+      exerciseName: e.exerciseName,
+      targetRestSeconds: e.restSeconds,
+      sets: Array.from({ length: e.sets || 3 }).map((_, sIdx) => ({
+        id: `s_${Date.now()}_${idx}_${sIdx}`,
+        setNumber: sIdx + 1,
+        type: 'normal',
+        weightKg: e.suggestedWeightKg || 30,
+        reps: e.repMin || 8,
+        completed: false
       }))
+    }));
+    const newSession = createAndSaveActiveSession({
+      name: plan.name,
+      notes: plan.rationale,
+      startedAt: new Date().toISOString(),
+      exercises
     });
+    setPersistedSession(newSession);
+    setActiveWorkoutData(sessionToPartialWorkout(newSession));
     setActiveTab('workout');
   };
 
   const handleRepeatWorkout = (workout: Workout) => {
-    setActiveWorkoutData({
+    const exercises = (workout.exercises || []).map((e: any) => {
+      const rawSets: any[] = Array.isArray(e.sets)
+        ? e.sets
+        : (typeof e.sets === 'number'
+          ? Array.from({ length: e.sets }).map((_, sIdx) => ({
+              id: `s_${Date.now()}_${sIdx}`,
+              setNumber: sIdx + 1,
+              type: 'normal',
+              weightKg: e.suggestedWeightKg || e.weightKg || 40,
+              reps: e.repMin || e.reps || 10,
+              completed: false
+            }))
+          : (e.sets && typeof e.sets === 'object'
+            ? Object.values(e.sets)
+            : []));
+      return {
+        ...e,
+        id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        sets: rawSets.map((s: any, sIdx: number) => ({
+          ...s,
+          id: `s_${Date.now()}_${sIdx}_${Math.random().toString(36).substr(2, 4)}`,
+          completed: false
+        }))
+      };
+    });
+    const newSession = createAndSaveActiveSession({
       name: `${workout.name} (Repeat)`,
       startedAt: new Date().toISOString(),
-      exercises: (workout.exercises || []).map((e: any) => {
-        const rawSets: any[] = Array.isArray(e.sets)
-          ? e.sets
-          : (typeof e.sets === 'number'
-            ? Array.from({ length: e.sets }).map((_, sIdx) => ({
-                id: `s_${Date.now()}_${sIdx}`,
-                setNumber: sIdx + 1,
-                type: 'normal',
-                weightKg: e.suggestedWeightKg || e.weightKg || 40,
-                reps: e.repMin || e.reps || 10,
-                completed: false
-              }))
-            : (e.sets && typeof e.sets === 'object'
-              ? Object.values(e.sets)
-              : []));
-        return {
-          ...e,
-          id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          sets: rawSets.map((s: any, sIdx: number) => ({
-            ...s,
-            id: `s_${Date.now()}_${sIdx}_${Math.random().toString(36).substr(2, 4)}`,
-            completed: false
-          }))
-        };
-      })
+      exercises
     });
+    setPersistedSession(newSession);
+    setActiveWorkoutData(sessionToPartialWorkout(newSession));
     setActiveTab('workout');
   };
 
   // Workout completion handler
   const handleFinishActiveWorkout = async (finishedWorkout: Workout) => {
+    const activeUserId = currentUser?.id || localStorage.getItem('training_intel_user_id') || '';
+    if (activeUserId && !finishedWorkout.userId) {
+      finishedWorkout.userId = activeUserId;
+    }
+    storageVault.removeDeletedWorkoutId(finishedWorkout.id);
+
     // 1. Gather all existing workouts from React state AND storage vault so nothing is ever dropped
     const vaultWorkouts = await storageVault.getWorkouts().catch(() => []);
     const delIds = new Set(storageVault.getDeletedWorkoutIds());
@@ -440,6 +604,14 @@ export function App() {
     setWorkouts(immediateList);
     setMusclesData(calculateMuscleExposures(immediateList, EXERCISES_MAP));
     setRadar(buildTrainingRadar(immediateList, EXERCISES_MAP));
+
+    // Send GA4 custom workout event
+    trackWorkoutCompleted(
+      finishedWorkout.name,
+      finishedWorkout.totalVolumeKg || 0,
+      finishedWorkout.totalSets || 0,
+      (finishedWorkout.durationSeconds || 0) / 60
+    );
 
     try {
       const res = await api.saveWorkout(finishedWorkout);
@@ -489,6 +661,8 @@ export function App() {
     } catch (err) {
       console.error('Notice saving finished workout to server:', err);
     } finally {
+      clearActiveWorkoutSession();
+      setPersistedSession(null);
       setActiveWorkoutData(null);
       setActiveTab('history');
     }
@@ -571,7 +745,9 @@ export function App() {
   };
 
   const handleDeleteWorkout = async (id: string) => {
-    // 1. Instant optimistic state update
+    // 1. Instant persistent tombstone and optimistic state update
+    storageVault.addDeletedWorkoutId(id);
+    await storageVault.deleteWorkout(id);
     const remaining = workouts.filter(w => w.id !== id);
     setWorkouts(remaining);
     setMusclesData(calculateMuscleExposures(remaining, EXERCISES_MAP));
@@ -702,7 +878,15 @@ export function App() {
   };
 
   const handleLogout = async () => {
+    try {
+      await signOutFromFirebase();
+    } catch (err) {
+      console.warn('Firebase signout warning:', err);
+    }
     await api.logout();
+    localStorage.removeItem('training_intel_user_id');
+    localStorage.removeItem('training_intel_user_email');
+    localStorage.removeItem('training_intel_user_name');
     setCurrentUser(null);
     setProfile(null);
     setWorkouts([]);
@@ -720,15 +904,21 @@ export function App() {
         previousWorkouts={workouts}
         onFinishWorkout={handleFinishActiveWorkout}
         onCancelWorkout={() => {
+          clearActiveWorkoutSession();
+          setPersistedSession(null);
           setActiveWorkoutData(null);
+          setActiveTab('dashboard');
+        }}
+        onMinimize={() => {
+          setPersistedSession(getActiveWorkoutSession());
           setActiveTab('dashboard');
         }}
       />
     );
   }
 
-  // Welcome / Sign-in gate for unauthenticated users without any existing workout history
-  if (!isLoading && !currentUser && workouts.length === 0) {
+  // Welcome / Sign-in gate for unauthenticated users
+  if (!isLoading && !currentUser) {
     return (
       <WelcomeAuthView
         onAuthSuccess={async (user, userProf) => {
@@ -845,7 +1035,7 @@ export function App() {
             <button
               id="athlete-account-btn"
               onClick={() => {
-                setAuthModalMode('switch');
+                setAuthModalMode('signin');
                 setShowAuthModal(true);
               }}
               className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 text-xs font-bold text-slate-800 dark:text-slate-200 transition-all shrink-0"
@@ -1099,6 +1289,42 @@ export function App() {
         </button>
       </div>
 
+      {/* Floating Active Workout Banner if session is running and user navigated away */}
+      {persistedSession && (
+        <aside
+          aria-label="Active workout in progress"
+          className="fixed bottom-16 md:bottom-6 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-lg bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white p-3 sm:p-3.5 rounded-2xl shadow-2xl border border-blue-500/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shrink-0 shadow-md shadow-blue-500/30">
+              <Dumbbell className="w-4 h-4 text-white animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase font-black tracking-wider text-blue-400 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                Workout in Progress
+              </div>
+              <div className="font-bold text-xs sm:text-sm text-white truncate">
+                {persistedSession.name}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                const sess = getActiveWorkoutSession();
+                if (sess) setActiveWorkoutData(sessionToPartialWorkout(sess));
+                setActiveTab('workout');
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              Resume
+            </button>
+          </div>
+        </aside>
+      )}
+
       {/* Mobile Bottom Fixed Navigation Bar (5 Primary Tab Modes) */}
       <nav className="md:hidden sticky bottom-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 py-1.5 px-2 grid grid-cols-5 items-center text-xs">
         <button
@@ -1187,6 +1413,7 @@ export function App() {
           currentProfile={profile}
           initialMode={authModalMode}
           onAuthSuccess={handleAuthSuccess}
+          onLogout={handleLogout}
           onClose={() => setShowAuthModal(false)}
         />
       )}

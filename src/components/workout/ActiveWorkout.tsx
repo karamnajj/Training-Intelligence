@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Workout,
@@ -12,6 +12,14 @@ import {
   calculateProgressiveOverload,
   MUSCLE_CATALOG
 } from '../../lib/muscleMath';
+import {
+  ActiveWorkoutSession,
+  getActiveWorkoutSession,
+  saveActiveWorkoutSession,
+  clearActiveWorkoutSession,
+  computeCurrentElapsedSeconds,
+  toDateTimeLocal
+} from '../../lib/activeWorkoutStorage';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import {
@@ -26,7 +34,10 @@ import {
   Settings2,
   X,
   AlertCircle,
-  Dumbbell
+  Dumbbell,
+  Play,
+  Pause,
+  Minimize2
 } from 'lucide-react';
 
 interface ActiveWorkoutProps {
@@ -34,50 +45,121 @@ interface ActiveWorkoutProps {
   previousWorkouts: Workout[];
   onFinishWorkout: (workout: Workout) => void;
   onCancelWorkout: () => void;
+  onMinimize?: () => void;
 }
 
 export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   initialWorkout,
   previousWorkouts,
   onFinishWorkout,
-  onCancelWorkout
+  onCancelWorkout,
+  onMinimize
 }) => {
-  // Convert date to datetime-local string
-  const toDateTimeLocal = (d: Date) => {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-      d.getHours()
-    )}:${pad(d.getMinutes())}`;
-  };
+  // Retrieve saved active workout session if present
+  const savedSession = useMemo(() => getActiveWorkoutSession(), []);
+
+  // Stable workout ID & start timestamp
+  const workoutIdRef = useRef<string>(
+    savedSession?.id || initialWorkout?.id || `workout_${Date.now()}`
+  );
+  const workoutStartedAtRef = useRef<string>(
+    savedSession?.startedAt || initialWorkout?.startedAt || new Date().toISOString()
+  );
 
   // Workout Metadata State
-  const [workoutName, setWorkoutName] = useState(initialWorkout?.name || 'Live Workout Session');
-  const [workoutNotes, setWorkoutNotes] = useState(initialWorkout?.notes || '');
+  const [workoutName, setWorkoutName] = useState<string>(() => {
+    return savedSession?.name || initialWorkout?.name || 'Live Workout Session';
+  });
+  const [workoutNotes, setWorkoutNotes] = useState<string>(() => {
+    return savedSession?.notes ?? initialWorkout?.notes ?? '';
+  });
   
-  // Date and Time State: Default is now
-  const [workoutDateTime, setWorkoutDateTime] = useState<string>(
-    initialWorkout?.startedAt
-      ? toDateTimeLocal(new Date(initialWorkout.startedAt))
-      : toDateTimeLocal(new Date())
-  );
+  // Date and Time State
+  const [workoutDateTime, setWorkoutDateTime] = useState<string>(() => {
+    if (savedSession?.workoutDateTime) return savedSession.workoutDateTime;
+    const startIso = savedSession?.startedAt || initialWorkout?.startedAt;
+    return startIso ? toDateTimeLocal(new Date(startIso)) : toDateTimeLocal(new Date());
+  });
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
+  const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
 
-  // Exercises State: default to empty (no default bench press)
-  const [exercises, setExercises] = useState<WorkoutExercise[]>(
-    initialWorkout?.exercises ? [...initialWorkout.exercises] : []
-  );
+  // Exercises State
+  const [exercises, setExercises] = useState<WorkoutExercise[]>(() => {
+    if (savedSession?.exercises && savedSession.exercises.length > 0) {
+      return savedSession.exercises;
+    }
+    return initialWorkout?.exercises ? [...initialWorkout.exercises] : [];
+  });
 
-  // Timer State
-  const [startTime] = useState<Date>(
-    initialWorkout?.startedAt ? new Date(initialWorkout.startedAt) : new Date()
+  // High-Precision Workout Timer State (immune to phone sleep, background tab throttling, and reload)
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(() => {
+    if (savedSession !== null && savedSession.isTimerRunning !== undefined) {
+      return savedSession.isTimerRunning;
+    }
+    return true;
+  });
+
+  const getInitialElapsedSeconds = () => {
+    if (savedSession) {
+      return computeCurrentElapsedSeconds(savedSession);
+    }
+    if (initialWorkout?.durationSeconds && initialWorkout.durationSeconds > 0) {
+      return initialWorkout.durationSeconds;
+    }
+    if (initialWorkout?.startedAt) {
+      const diff = Math.floor((Date.now() - new Date(initialWorkout.startedAt).getTime()) / 1000);
+      if (diff > 0 && diff < 86400) return diff;
+    }
+    return 0;
+  };
+
+  const initialElapsed = getInitialElapsedSeconds();
+  const accumulatedSecondsRef = useRef<number>(
+    savedSession ? savedSession.accumulatedSeconds : initialElapsed
   );
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(true);
+  const lastResumedAtRef = useRef<number>(
+    savedSession
+      ? (savedSession.isTimerRunning ? (savedSession.lastResumedAt || Date.now()) : 0)
+      : Date.now()
+  );
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(initialElapsed);
+
+  // Toggle workout timer pause/resume
+  const toggleWorkoutTimer = () => {
+    if (isTimerRunning) {
+      const currentSlice = lastResumedAtRef.current
+        ? Math.max(0, Math.floor((Date.now() - lastResumedAtRef.current) / 1000))
+        : 0;
+      accumulatedSecondsRef.current = Math.max(0, accumulatedSecondsRef.current + currentSlice);
+      lastResumedAtRef.current = 0;
+      setElapsedSeconds(accumulatedSecondsRef.current);
+      setIsTimerRunning(false);
+    } else {
+      lastResumedAtRef.current = Date.now();
+      setIsTimerRunning(true);
+    }
+  };
 
   // Rest Timer State
-  const [restTimerSeconds, setRestTimerSeconds] = useState<number | null>(null);
-  const [restTimerTotal, setRestTimerTotal] = useState<number>(90);
-  const restIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const getInitialRestSeconds = () => {
+    if (savedSession?.restEndTimestamp) {
+      if (savedSession.isRestPaused && savedSession.restPausedRemaining) {
+        return savedSession.restPausedRemaining;
+      }
+      const msLeft = savedSession.restEndTimestamp - Date.now();
+      const secLeft = Math.ceil(msLeft / 1000);
+      return secLeft > 0 ? secLeft : null;
+    }
+    return savedSession?.restTimerSeconds ?? null;
+  };
+
+  const [restTimerSeconds, setRestTimerSeconds] = useState<number | null>(getInitialRestSeconds);
+  const [restTimerTotal, setRestTimerTotal] = useState<number>(savedSession?.restTimerTotal || 90);
+  const [isRestPaused, setIsRestPaused] = useState<boolean>(savedSession?.isRestPaused || false);
+  const [restCompletedNotice, setRestCompletedNotice] = useState<boolean>(false);
+
+  const restEndTimestampRef = useRef<number | null>(savedSession?.restEndTimestamp ?? null);
+  const restPausedRemainingRef = useRef<number | null>(savedSession?.restPausedRemaining ?? null);
 
   // Modals
   const [showExerciseSelector, setShowExerciseSelector] = useState(false);
@@ -86,74 +168,272 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   const [plateCalcInitialWeight, setPlateCalcInitialWeight] = useState<number>(60);
   const [showFinishModal, setShowFinishModal] = useState(false);
 
-  // Keep ActiveWorkout state synchronized whenever initialWorkout prop changes or is updated
+  // Synchronize state to persistent localStorage
+  const syncToStorage = useCallback(() => {
+    const session: ActiveWorkoutSession = {
+      id: workoutIdRef.current,
+      name: workoutName,
+      notes: workoutNotes,
+      startedAt: workoutStartedAtRef.current,
+      workoutDateTime,
+      exercises,
+      accumulatedSeconds: accumulatedSecondsRef.current,
+      lastResumedAt: isTimerRunning ? (lastResumedAtRef.current || Date.now()) : null,
+      isTimerRunning,
+      restTimerSeconds,
+      restTimerTotal,
+      restEndTimestamp: restEndTimestampRef.current,
+      isRestPaused,
+      restPausedRemaining: restPausedRemainingRef.current,
+      updatedAt: Date.now()
+    };
+    saveActiveWorkoutSession(session);
+  }, [
+    workoutName,
+    workoutNotes,
+    workoutDateTime,
+    exercises,
+    isTimerRunning,
+    restTimerSeconds,
+    restTimerTotal,
+    isRestPaused
+  ]);
+
+  // Persist whenever active state updates
   useEffect(() => {
-    if (initialWorkout) {
+    syncToStorage();
+  }, [syncToStorage]);
+
+  // Periodic 3-second heartbeat to keep wall-clock time fresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      syncToStorage();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [syncToStorage]);
+
+  // Flush persistence on page unload / refresh / backgrounding
+  useEffect(() => {
+    const handleSave = () => syncToStorage();
+    window.addEventListener('beforeunload', handleSave);
+    window.addEventListener('pagehide', handleSave);
+    document.addEventListener('visibilitychange', handleSave);
+    return () => {
+      window.removeEventListener('beforeunload', handleSave);
+      window.removeEventListener('pagehide', handleSave);
+      document.removeEventListener('visibilitychange', handleSave);
+    };
+  }, [syncToStorage]);
+
+  // Only re-initialize if an entirely DIFFERENT workout ID is passed from outside
+  const lastInitialWorkoutIdRef = useRef<string | undefined>(initialWorkout?.id);
+  useEffect(() => {
+    if (initialWorkout && initialWorkout.id && initialWorkout.id !== lastInitialWorkoutIdRef.current) {
+      lastInitialWorkoutIdRef.current = initialWorkout.id;
+      workoutIdRef.current = initialWorkout.id;
       if (initialWorkout.name) setWorkoutName(initialWorkout.name);
       if (initialWorkout.notes !== undefined) setWorkoutNotes(initialWorkout.notes || '');
       if (initialWorkout.startedAt) {
+        workoutStartedAtRef.current = initialWorkout.startedAt;
         setWorkoutDateTime(toDateTimeLocal(new Date(initialWorkout.startedAt)));
       }
       if (Array.isArray(initialWorkout.exercises)) {
         setExercises(initialWorkout.exercises);
       }
+      if (initialWorkout.durationSeconds && initialWorkout.durationSeconds > 0) {
+        accumulatedSecondsRef.current = initialWorkout.durationSeconds;
+        lastResumedAtRef.current = Date.now();
+        setElapsedSeconds(initialWorkout.durationSeconds);
+      }
     }
   }, [initialWorkout]);
 
-  // Live Workout Timer effect
+  // Workout Timer Effect: High-precision wall-clock synchronization
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    if (isTimerRunning) {
-      interval = setInterval(() => {
-        setElapsedSeconds(prev => prev + 1);
-      }, 1000);
-    }
+    const updateElapsed = () => {
+      if (!isTimerRunning) {
+        setElapsedSeconds(accumulatedSecondsRef.current);
+        return;
+      }
+      if (!lastResumedAtRef.current) {
+        lastResumedAtRef.current = Date.now();
+      }
+      const currentSlice = Math.max(0, Math.floor((Date.now() - lastResumedAtRef.current) / 1000));
+      setElapsedSeconds(accumulatedSecondsRef.current + currentSlice);
+    };
+
+    updateElapsed();
+
+    if (!isTimerRunning) return;
+
+    const interval = setInterval(updateElapsed, 500);
+
+    const handleSync = () => {
+      updateElapsed();
+    };
+
+    document.addEventListener('visibilitychange', handleSync);
+    window.addEventListener('focus', handleSync);
+
     return () => {
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleSync);
+      window.removeEventListener('focus', handleSync);
     };
   }, [isTimerRunning]);
 
-  // Rest Timer Countdown effect
-  useEffect(() => {
-    if (restTimerSeconds !== null && restTimerSeconds > 0) {
-      restIntervalRef.current = setInterval(() => {
-        setRestTimerSeconds(prev => {
-          if (prev === null || prev <= 1) {
-            clearInterval(restIntervalRef.current as any);
-            try {
-              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const osc = ctx.createOscillator();
-              const gain = ctx.createGain();
-              osc.type = 'sine';
-              osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-              gain.gain.setValueAtTime(0.1, ctx.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-              osc.connect(gain);
-              gain.connect(ctx.destination);
-              osc.start();
-              osc.stop(ctx.currentTime + 0.5);
-            } catch {
-              // audio context fallback
-            }
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+  // Audio chime player for rest completion
+  const playTimerChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      const playTone = (freq: number, start: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.15, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + duration);
+      };
+      playTone(880, ctx.currentTime, 0.2);
+      playTone(1174.66, ctx.currentTime + 0.16, 0.4);
+    } catch {
+      // audio context fallback
     }
-    return () => {
-      if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+  };
+
+  // Rest Timer Countdown Effect: Wall-clock driven, immune to re-renders
+  const isRestActive = restTimerSeconds !== null;
+  useEffect(() => {
+    if (!isRestActive || isRestPaused) return;
+
+    const checkRestCountdown = () => {
+      if (!restEndTimestampRef.current) return;
+      const msLeft = restEndTimestampRef.current - Date.now();
+      const secondsLeft = Math.ceil(msLeft / 1000);
+
+      if (secondsLeft <= 0) {
+        setRestTimerSeconds(0);
+        restEndTimestampRef.current = null;
+        setRestCompletedNotice(true);
+        playTimerChime();
+        try {
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([150, 100, 250]);
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        setRestTimerSeconds(secondsLeft);
+      }
     };
-  }, [restTimerSeconds]);
+
+    checkRestCountdown();
+    const interval = setInterval(checkRestCountdown, 250);
+
+    const handleSync = () => {
+      checkRestCountdown();
+    };
+
+    document.addEventListener('visibilitychange', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleSync);
+      window.removeEventListener('focus', handleSync);
+    };
+  }, [isRestActive, isRestPaused]);
+
+  // Auto-dismiss rest completion banner after 5 seconds
+  useEffect(() => {
+    if (!restCompletedNotice) return;
+    const timeout = setTimeout(() => {
+      setRestCompletedNotice(false);
+      setRestTimerSeconds(null);
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [restCompletedNotice]);
 
   const startRestTimer = (seconds: number) => {
-    setRestTimerTotal(seconds);
-    setRestTimerSeconds(seconds);
+    if (seconds <= 0) {
+      dismissRestTimer();
+      return;
+    }
+    const safeSec = Math.round(seconds);
+    setRestTimerTotal(safeSec);
+    setRestTimerSeconds(safeSec);
+    setIsRestPaused(false);
+    setRestCompletedNotice(false);
+    restPausedRemainingRef.current = null;
+    restEndTimestampRef.current = Date.now() + safeSec * 1000;
+  };
+
+  const addRestSeconds = (extraSeconds: number) => {
+    setRestCompletedNotice(false);
+    if (restTimerSeconds === null) {
+      startRestTimer(extraSeconds);
+      return;
+    }
+    if (isRestPaused) {
+      const newRemaining = Math.max(1, (restPausedRemainingRef.current || restTimerSeconds) + extraSeconds);
+      restPausedRemainingRef.current = newRemaining;
+      setRestTimerSeconds(newRemaining);
+      setRestTimerTotal(prev => prev + extraSeconds);
+    } else {
+      if (restEndTimestampRef.current) {
+        restEndTimestampRef.current += extraSeconds * 1000;
+      } else {
+        restEndTimestampRef.current = Date.now() + (restTimerSeconds + extraSeconds) * 1000;
+      }
+      setRestTimerTotal(prev => prev + extraSeconds);
+      const remaining = Math.max(1, Math.ceil((restEndTimestampRef.current - Date.now()) / 1000));
+      setRestTimerSeconds(remaining);
+    }
+  };
+
+  const toggleRestPause = () => {
+    if (restTimerSeconds === null || restTimerSeconds <= 0) return;
+    if (!isRestPaused) {
+      const remaining = restEndTimestampRef.current
+        ? Math.max(1, Math.ceil((restEndTimestampRef.current - Date.now()) / 1000))
+        : restTimerSeconds;
+      restPausedRemainingRef.current = remaining;
+      setRestTimerSeconds(remaining);
+      setIsRestPaused(true);
+    } else {
+      const remaining = restPausedRemainingRef.current || restTimerSeconds;
+      restEndTimestampRef.current = Date.now() + remaining * 1000;
+      restPausedRemainingRef.current = null;
+      setIsRestPaused(false);
+    }
+  };
+
+  const dismissRestTimer = () => {
+    setRestTimerSeconds(null);
+    setRestCompletedNotice(false);
+    setIsRestPaused(false);
+    restEndTimestampRef.current = null;
+    restPausedRemainingRef.current = null;
   };
 
   const formatTime = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
+    const safe = Math.max(0, Math.floor(totalSeconds));
+    const hrs = Math.floor(safe / 3600);
+    const mins = Math.floor((safe % 3600) / 60);
+    const secs = safe % 60;
+    if (hrs > 0) {
+      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
@@ -258,6 +538,17 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
     });
   };
 
+  const handleUpdateExerciseRest = (exerciseIndex: number, restSeconds: number) => {
+    setExercises(prev => {
+      const updated = [...prev];
+      updated[exerciseIndex] = {
+        ...updated[exerciseIndex],
+        targetRestSeconds: restSeconds
+      };
+      return updated;
+    });
+  };
+
   const handleUpdateSet = (
     exerciseIndex: number,
     setIndex: number,
@@ -314,7 +605,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
     const completedDate = new Date(chosenStartDate.getTime() + durationSeconds * 1000);
 
     const finalWorkout: Workout = {
-      id: initialWorkout?.id || `workout_${Date.now()}`,
+      id: workoutIdRef.current,
       name: workoutName.trim() || 'Logged Workout',
       startedAt: chosenStartDate.toISOString(),
       completedAt: completedDate.toISOString(),
@@ -336,6 +627,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
       // ignore
     }
 
+    clearActiveWorkoutSession();
     onFinishWorkout(finalWorkout);
   };
 
@@ -348,12 +640,25 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 sm:gap-4 min-w-0">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
-              onClick={() => setIsTimerRunning(!isTimerRunning)}
-              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 font-mono font-bold text-xs sm:text-sm shrink-0"
-              title="Toggle workout clock"
+              onClick={toggleWorkoutTimer}
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-mono font-bold text-xs sm:text-sm shrink-0 transition-colors ${
+                isTimerRunning
+                  ? 'bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30'
+                  : 'bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
+              }`}
+              title={isTimerRunning ? 'Pause workout clock' : 'Resume workout clock'}
             >
-              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 shrink-0" />
+              {isTimerRunning ? (
+                <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 shrink-0" />
+              ) : (
+                <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0 fill-current" />
+              )}
               <span>{formatTime(elapsedSeconds)}</span>
+              {!isTimerRunning && (
+                <span className="text-[10px] font-sans font-semibold uppercase tracking-wider text-amber-400/90 ml-0.5">
+                  Paused
+                </span>
+              )}
             </button>
             <input
               type="text"
@@ -390,6 +695,38 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
             </button>
 
             <button
+              onClick={() => {
+                if (restTimerSeconds === null && !restCompletedNotice) {
+                  startRestTimer(90);
+                } else if (restTimerSeconds !== null) {
+                  toggleRestPause();
+                }
+              }}
+              className={`p-1.5 sm:p-2 rounded-xl transition-colors flex items-center gap-1 ${
+                restTimerSeconds !== null
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+              }`}
+              title="Quick Rest Timer"
+            >
+              <RotateCcw className={`w-4 h-4 text-amber-400 ${restTimerSeconds !== null && !isRestPaused ? 'animate-spin' : ''}`} />
+              <span className="hidden md:inline text-xs font-semibold text-amber-400">
+                {restTimerSeconds !== null ? formatTime(restTimerSeconds) : 'Rest'}
+              </span>
+            </button>
+
+            {onMinimize && (
+              <button
+                type="button"
+                onClick={onMinimize}
+                className="p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                title="Minimize workout and view app"
+              >
+                <Minimize2 className="w-4 h-4 text-slate-300" />
+              </button>
+            )}
+
+            <button
               id="finish-workout-btn"
               onClick={() => {
                 if (exercises.length === 0) {
@@ -406,36 +743,73 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
           </div>
         </div>
 
-        {/* Live Rest Timer Bar (if active) */}
-        {restTimerSeconds !== null && (
+        {/* Live Rest Timer Bar (if active or completed notice) */}
+        {(restTimerSeconds !== null || restCompletedNotice) && (
           <div className="max-w-4xl mx-auto mt-2 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-amber-400 flex items-center gap-1">
-                <RotateCcw className="w-3.5 h-3.5 animate-spin" /> Rest:
-              </span>
-              <span className="font-mono text-sm font-bold text-white">
-                {formatTime(restTimerSeconds)}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              {[30, 60, 90, 120, 180].map(sec => (
+            {restCompletedNotice ? (
+              <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="font-bold text-xs sm:text-sm">Rest Complete! Ready for next set</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleRestPause}
+                  className={`p-1.5 rounded-lg transition-colors flex items-center justify-center ${
+                    isRestPaused
+                      ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                      : 'bg-slate-800 text-amber-400 hover:bg-slate-700'
+                  }`}
+                  title={isRestPaused ? 'Resume rest countdown' : 'Pause rest countdown'}
+                >
+                  {isRestPaused ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5" />}
+                </button>
+                <span className="font-semibold text-amber-400 flex items-center gap-1">
+                  <RotateCcw className={`w-3.5 h-3.5 ${!isRestPaused ? 'animate-spin' : ''}`} /> Rest:
+                </span>
+                <span className="font-mono text-sm sm:text-base font-bold text-white tracking-wider">
+                  {formatTime(restTimerSeconds || 0)}
+                </span>
+                {isRestPaused && (
+                  <span className="text-[10px] font-semibold text-amber-400/90 uppercase tracking-wider bg-amber-500/10 px-1.5 py-0.5 rounded">
+                    Paused
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center gap-1 sm:gap-1.5 ml-auto">
+              <button
+                onClick={() => addRestSeconds(30)}
+                className="px-2 py-1 rounded-md bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 font-semibold text-[11px] flex items-center gap-0.5 transition-colors"
+                title="Add 30 seconds"
+              >
+                <Plus className="w-3 h-3" />
+                <span>30s</span>
+              </button>
+
+              {[30, 60, 90, 120, 180, 300].map(sec => (
                 <button
                   key={sec}
                   onClick={() => startRestTimer(sec)}
-                  className={`px-2 py-0.5 rounded-md font-semibold text-[11px] ${
-                    restTimerTotal === sec
-                      ? 'bg-amber-500 text-slate-950'
+                  className={`px-2 py-1 rounded-md font-semibold text-[11px] transition-colors ${
+                    restTimerTotal === sec && !restCompletedNotice
+                      ? 'bg-amber-500 text-slate-950 font-bold'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={`Start ${sec === 300 ? '5 minute' : sec >= 60 ? `${sec / 60} minute` : `${sec} second`} rest countdown`}
                 >
-                  {sec}s
+                  {sec === 300 ? '5m' : sec === 180 ? '3m' : sec === 120 ? '2m' : `${sec}s`}
                 </button>
               ))}
+
               <button
-                onClick={() => setRestTimerSeconds(null)}
-                className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 hover:text-white text-[11px]"
+                onClick={dismissRestTimer}
+                className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-[11px] transition-colors flex items-center gap-0.5"
+                title="Dismiss rest countdown"
               >
-                Skip
+                <X className="w-3 h-3" />
+                <span>{restCompletedNotice ? 'Close' : 'Skip'}</span>
               </button>
             </div>
           </div>
@@ -528,10 +902,28 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                     <h3 className="font-bold text-white text-sm sm:text-base truncate">
                       {ex.exerciseName}
                     </h3>
-                    <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-slate-400 mt-0.5">
                       <span className="capitalize">{def?.category || 'Strength'}</span>
                       <span>•</span>
                       <span className="capitalize">{def?.equipment ? def.equipment.replace(/_/g, ' ') : 'Barbell'}</span>
+                      <span>•</span>
+                      <div className="inline-flex items-center gap-1 bg-slate-900/60 border border-slate-700/60 rounded px-1.5 py-0.5 text-amber-400">
+                        <RotateCcw className="w-3 h-3 text-amber-400/90 shrink-0" />
+                        <select
+                          aria-label={`Target rest time for ${ex.exerciseName}`}
+                          value={ex.targetRestSeconds || 90}
+                          onChange={e => handleUpdateExerciseRest(exIdx, parseInt(e.target.value) || 90)}
+                          className="bg-transparent text-amber-400 font-semibold text-[11px] cursor-pointer focus:outline-none focus:ring-0"
+                          title="Rest countdown timer after completing a set"
+                        >
+                          <option value={30} className="bg-slate-900 text-white">Rest: 30s</option>
+                          <option value={60} className="bg-slate-900 text-white">Rest: 60s</option>
+                          <option value={90} className="bg-slate-900 text-white">Rest: 90s</option>
+                          <option value={120} className="bg-slate-900 text-white">Rest: 2m</option>
+                          <option value={180} className="bg-slate-900 text-white">Rest: 3m</option>
+                          <option value={300} className="bg-slate-900 text-white">Rest: 5m</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -743,7 +1135,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         <div className="text-center pt-4">
           <button
             type="button"
-            onClick={onCancelWorkout}
+            onClick={() => setShowDiscardConfirmModal(true)}
             className="text-xs text-rose-400 hover:text-rose-300 underline"
           >
             Cancel and Discard Workout
@@ -892,6 +1284,46 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
           unit="kg"
           onClose={() => setShowPlateCalculator(false)}
         />
+      )}
+
+      {/* Discard Workout Confirmation Modal */}
+      {showDiscardConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-sm bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                <AlertCircle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Discard Workout?</h3>
+                <p className="text-xs text-slate-400">This action cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to discard this workout? All logged sets, reps, and elapsed workout time will be permanently cleared.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDiscardConfirmModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors"
+              >
+                Keep Lifting
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDiscardConfirmModal(false);
+                  clearActiveWorkoutSession();
+                  onCancelWorkout();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-950 transition-colors"
+              >
+                Discard Workout
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -12,6 +12,7 @@ export type MuscleId =
   | 'rectus_abdominis'
   | 'obliques'
   | 'trapezius'
+  | 'rhomboids'
   | 'latissimus_dorsi'
   | 'spinal_erectors'
   | 'gluteus'
@@ -128,6 +129,7 @@ export interface WorkoutExercise {
 
 export interface Workout {
   id: string;
+  userId?: string;
   name: string;
   startedAt: string; // ISO string
   completedAt?: string; // ISO string
@@ -142,6 +144,7 @@ export interface Workout {
 
 export interface WorkoutTemplate {
   id: string;
+  userId?: string;
   name: string;
   description?: string;
   category: string;
@@ -184,6 +187,7 @@ export interface PersonalRecord {
   estimated1RMKg: number;
   achievedAt: string;
   workoutId: string;
+  userId?: string;
 }
 
 export interface TrainingRadar {

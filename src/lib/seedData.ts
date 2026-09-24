@@ -56,7 +56,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
       },
       {
         exerciseId: 'triceps_rope_pushdown',
-        exerciseName: 'Cable Triceps Rope Pushdown',
+        exerciseName: 'Cable Triceps Pushdown',
         sets: 3,
         repMin: 10,
         repMax: 12,
@@ -273,7 +273,7 @@ export function getSeedWorkouts(): Workout[] {
         {
           id: 'ex_push_4',
           exerciseId: 'triceps_rope_pushdown',
-          exerciseName: 'Cable Triceps Rope Pushdown',
+          exerciseName: 'Cable Triceps Pushdown',
           sets: [
             { id: 's4_1', setNumber: 1, type: 'normal', weightKg: 27.5, reps: 12, completed: true, rpe: 8 },
             { id: 's4_2', setNumber: 2, type: 'normal', weightKg: 30, reps: 10, completed: true, rpe: 8.5 },
@@ -291,7 +291,7 @@ export function getSeedWorkouts(): Workout[] {
       notes: 'Great lat stretch and controlled rowing eccentric.',
       totalVolumeKg: 4620,
       totalSets: 12,
-      musclesTrained: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
       rpeAverage: 8.2,
       exercises: [
         {
@@ -409,7 +409,7 @@ export function getGuestShowcaseWorkouts(refDate: Date = new Date()): Workout[] 
       notes: 'Excellent lat contraction and heavy seated cable rows. Great bicep and rear delt accessory pump.',
       totalVolumeKg: 4620,
       totalSets: 11,
-      musclesTrained: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
       rpeAverage: 8.4,
       exercises: [
         {
@@ -523,8 +523,8 @@ export function getGuestShowcaseWorkouts(refDate: Date = new Date()): Workout[] 
         {
           id: 'alex_ex_11',
           exerciseId: 'triceps_rope_pushdown',
-          exerciseName: 'Cable Triceps Rope Pushdown',
-          notes: 'Flaring rope at lockout',
+          exerciseName: 'Cable Triceps Pushdown',
+          notes: 'Smooth lockout at bottom',
           sets: [
             { id: 'as30', setNumber: 1, type: 'normal', weightKg: 30, reps: 12, completed: true, rpe: 7.5 },
             { id: 'as31', setNumber: 2, type: 'normal', weightKg: 35, reps: 10, completed: true, rpe: 8 },
@@ -665,7 +665,7 @@ function _legacySeedWorkouts(): Workout[] {
         {
           id: 'we_4',
           exerciseId: 'triceps_rope_pushdown',
-          exerciseName: 'Cable Triceps Rope Pushdown',
+          exerciseName: 'Cable Triceps Pushdown',
           sets: [
             { id: 's11', setNumber: 1, type: 'normal', weightKg: 27.5, reps: 12, completed: true },
             { id: 's12', setNumber: 2, type: 'normal', weightKg: 27.5, reps: 11, completed: true },
@@ -683,7 +683,7 @@ function _legacySeedWorkouts(): Workout[] {
       notes: 'Strong mind-muscle connection on chest supported rows and face pulls.',
       totalVolumeKg: 3890,
       totalSets: 12,
-      musclesTrained: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
       rpeAverage: 7.8,
       exercises: [
         {
@@ -829,7 +829,7 @@ function _legacySeedWorkouts(): Workout[] {
         {
           id: 'we_44',
           exerciseId: 'triceps_rope_pushdown',
-          exerciseName: 'Cable Triceps Rope Pushdown',
+          exerciseName: 'Cable Triceps Pushdown',
           sets: [
             { id: 's70', setNumber: 1, type: 'normal', weightKg: 25, reps: 12, completed: true },
             { id: 's71', setNumber: 2, type: 'normal', weightKg: 25, reps: 12, completed: true },
@@ -847,7 +847,7 @@ function _legacySeedWorkouts(): Workout[] {
       notes: 'Chest-supported row double progression target reached.',
       totalVolumeKg: 4120,
       totalSets: 13,
-      musclesTrained: ['latissimus_dorsi', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
       rpeAverage: 8.0,
       exercises: [
         {
@@ -1036,7 +1036,7 @@ export const SEED_PERSONAL_RECORDS: PersonalRecord[] = [
   },
   {
     exerciseId: 'triceps_rope_pushdown',
-    exerciseName: 'Cable Triceps Rope Pushdown',
+    exerciseName: 'Cable Triceps Pushdown',
     maxWeightKg: 32.5,
     maxReps: 10,
     estimated1RMKg: 43.3,

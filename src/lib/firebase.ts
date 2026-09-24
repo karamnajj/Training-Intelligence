@@ -103,11 +103,10 @@ export async function testConnection(): Promise<boolean> {
 testConnection().catch(() => {});
 
 // 4. Google Authentication Helper (configured via OAuth Client ID in project)
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
-
 export async function signInWithGoogle(): Promise<FirebaseUser> {
   try {
+    const googleProvider = new GoogleAuthProvider();
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
 
@@ -144,7 +143,7 @@ export function subscribeToFirebaseAuth(callback: (user: FirebaseUser | null) =>
   });
 }
 
-export async function waitForFirebaseAuth(timeoutMs = 500): Promise<FirebaseUser | null> {
+export async function waitForFirebaseAuth(timeoutMs = 1500): Promise<FirebaseUser | null> {
   if (auth.currentUser) return auth.currentUser;
   return new Promise((resolve) => {
     let resolved = false;
@@ -297,6 +296,91 @@ export async function getWorkoutsFromFirestore(userId: string, deletedIds?: Set<
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
     return [];
+  }
+}
+
+/**
+ * Real-time Firestore subscription for user workouts.
+ * Pushes updates immediately whenever workouts are created, updated, or removed across devices.
+ */
+export function subscribeToWorkoutsFromFirestore(
+  userId: string,
+  onUpdate: (workouts: Workout[]) => void,
+  onError?: (error: unknown) => void
+): () => void {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) {
+    return () => {};
+  }
+  const path = `users/${userId}/workouts`;
+  try {
+    const workoutsCol = collection(db, 'users', userId, 'workouts');
+    const unsubscribe = onSnapshot(
+      workoutsCol,
+      (snap) => {
+        const results: Workout[] = [];
+        for (const docSnap of snap.docs) {
+          const data = docSnap.data();
+          const docId = data.id || docSnap.id;
+
+          const normalizeDate = (val: any): string | undefined => {
+            if (!val) return undefined;
+            if (typeof val === 'string' && val.trim()) return val;
+            if (typeof val.toDate === 'function') {
+              try { return val.toDate().toISOString(); } catch {}
+            }
+            if (typeof val.seconds === 'number') {
+              return new Date(val.seconds * 1000).toISOString();
+            }
+            if (typeof val._seconds === 'number') {
+              return new Date(val._seconds * 1000).toISOString();
+            }
+            if (val instanceof Date && !isNaN(val.getTime())) {
+              return val.toISOString();
+            }
+            return undefined;
+          };
+
+          const startedAt = normalizeDate(data.startedAt);
+          const completedAt = normalizeDate(data.completedAt);
+          if (!startedAt && !completedAt) continue;
+
+          const candidate: Workout = {
+            id: docId,
+            userId: data.userId || userId,
+            name: data.name || 'Workout',
+            startedAt,
+            completedAt,
+            durationSeconds: data.durationSeconds || 0,
+            totalVolumeKg: data.totalVolumeKg || 0,
+            totalSets: data.totalSets || 0,
+            notes: data.notes || '',
+            exercises: Array.isArray(data.exercises) ? data.exercises : [],
+            musclesTrained: data.musclesTrained || []
+          };
+
+          if (isGenuineWorkout(candidate)) {
+            results.push(candidate);
+          }
+        }
+
+        results.sort((a, b) => {
+          const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
+          const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
+          return tB - tA;
+        });
+
+        onUpdate(results);
+      },
+      (error) => {
+        if (onError) onError(error);
+        handleFirestoreError(error, OperationType.GET, path);
+      }
+    );
+    return unsubscribe;
+  } catch (error) {
+    if (onError) onError(error);
+    handleFirestoreError(error, OperationType.GET, path);
+    return () => {};
   }
 }
 

@@ -59,11 +59,12 @@ export const api = {
     }
   },
 
-  setSession(token: string | null, userId?: string, email?: string) {
+  setSession(token: string | null, userId?: string, email?: string, username?: string) {
     this.setToken(token);
     try {
       if (userId) localStorage.setItem('training_intel_user_id', userId);
       if (email) localStorage.setItem('training_intel_user_email', email);
+      if (username) localStorage.setItem('training_intel_user_name', username);
     } catch {}
   },
 
@@ -79,15 +80,37 @@ export const api = {
       headers['Authorization'] = `Bearer ${token}`;
     }
     try {
-      const savedUserId = localStorage.getItem('training_intel_user_id');
-      if (savedUserId) headers['x-user-id'] = savedUserId;
-      const savedEmail = localStorage.getItem('training_intel_user_email');
-      if (savedEmail) headers['x-user-email'] = savedEmail;
+      const uid = localStorage.getItem('training_intel_user_id');
+      const email = localStorage.getItem('training_intel_user_email');
+      if (uid) headers['x-user-id'] = uid;
+      if (email) headers['x-user-email'] = email;
     } catch {}
     return headers;
   },
 
   // Auth & Account API
+  async loginWithGoogle(params: { uid: string; email: string; displayName?: string }): Promise<AuthResponse> {
+    const res = await fetch(`${BASE_URL}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Google login failed' }));
+      throw new Error(err.error || 'Google login failed');
+    }
+    const data: AuthResponse = await res.json();
+    if (data.token) {
+      this.setSession(data.token, data.user?.id, data.user?.email, data.user?.username);
+    }
+    if (data.user) {
+      await storageVault.saveUser(data.user);
+    }
+    if (data.profile) {
+      await storageVault.saveProfile(data.profile);
+    }
+    return data;
+  },
   async register(params: {
     email: string;
     username: string;
@@ -108,7 +131,7 @@ export const api = {
     }
     const data: AuthResponse = await res.json();
     if (data.token) {
-      this.setSession(data.token, data.user?.id, data.user?.email);
+      this.setSession(data.token, data.user?.id, data.user?.email, data.user?.username);
     }
     if (data.user) {
       storageVault.saveUser(data.user).catch(() => {});
@@ -131,7 +154,7 @@ export const api = {
     }
     const data: AuthResponse = await res.json();
     if (data.token) {
-      this.setSession(data.token, data.user?.id, data.user?.email);
+      this.setSession(data.token, data.user?.id, data.user?.email, data.user?.username);
     }
     if (data.user) {
       storageVault.saveUser(data.user).catch(() => {});
@@ -193,9 +216,13 @@ export const api = {
       // Offline / server restart failover
     }
 
-    // Resilient local vault recovery: Never log the athlete out if local session is cached!
+    // Resilient local vault recovery: Only if an active user ID exists in local storage
+    const storedUid = typeof window !== 'undefined' ? localStorage.getItem('training_intel_user_id') : null;
+    if (!storedUid) {
+      return null;
+    }
     const localUser = await storageVault.getUser();
-    if (localUser && localUser.id) {
+    if (localUser && localUser.id && (localUser.id === storedUid || localUser.id.startsWith(storedUid))) {
       const localProfile = await storageVault.getProfile() || {
         id: `prof_${localUser.id}`,
         name: localUser.username || 'Athlete',
@@ -286,6 +313,7 @@ export const api = {
     try {
       localStorage.removeItem('training_intel_user_id');
       localStorage.removeItem('training_intel_user_email');
+      localStorage.removeItem('training_intel_user_name');
     } catch {}
     if (currentUid) {
       await storageVault.clearUserCache(currentUid);
@@ -389,7 +417,7 @@ export const api = {
 
     let currentFirebaseUser = isGuest ? null : auth.currentUser;
     if (!currentFirebaseUser && !isGuest) {
-      currentFirebaseUser = await waitForFirebaseAuth(350);
+      currentFirebaseUser = await waitForFirebaseAuth(1200);
     }
 
     // 0. Synchronize latest tombstones from server across all devices
@@ -457,10 +485,9 @@ export const api = {
         if (Array.isArray(serverWorkouts) && serverWorkouts.length > 0) {
           for (const sw of serverWorkouts) {
             if (sw && sw.id && isGenuineWorkout(sw)) {
-              // Server actively returned this workout: it is alive! Un-tombstone if needed
+              // If tombstoned by user, never resurrect!
               if (delSet.has(sw.id)) {
-                removeDeletedWorkoutId(sw.id);
-                delSet.delete(sw.id);
+                continue;
               }
               const existing = workoutMap.get(sw.id);
               if (!existing) {
@@ -480,7 +507,30 @@ export const api = {
       console.warn('[Storage] Backend workouts fetch issue, proceeding with merged vault:', err);
     }
 
-    const mergedList = Array.from(workoutMap.values()).filter(w => isGenuineWorkout(w) && !delSet.has(w.id));
+    const mergedList = Array.from(workoutMap.values()).filter(w => {
+      if (!isGenuineWorkout(w) || delSet.has(w.id)) return false;
+      if (activeUserId && w.userId && w.userId !== activeUserId) {
+        const isCrossDeviceCompatible =
+          w.userId === 'usr_athlete_local' ||
+          w.userId === 'usr_default' ||
+          w.userId === 'usr_guest_demo' ||
+          w.userId === 'usr_karam_owner' ||
+          w.userId.startsWith('fb_') ||
+          !w.userId.startsWith('usr_') ||
+          activeUserId === 'usr_karam_owner' ||
+          (activeUserId !== 'usr_guest_demo' && w.userId !== 'usr_guest_demo');
+
+        if (isCrossDeviceCompatible) {
+          w.userId = activeUserId;
+          return true;
+        }
+        return false;
+      }
+      if (!w.userId && activeUserId) {
+        w.userId = activeUserId;
+      }
+      return true;
+    });
     mergedList.sort((a, b) => {
       const tA = a.completedAt ? new Date(a.completedAt).getTime() : (a.startedAt ? new Date(a.startedAt).getTime() : 0);
       const tB = b.completedAt ? new Date(b.completedAt).getTime() : (b.startedAt ? new Date(b.startedAt).getTime() : 0);
@@ -513,6 +563,17 @@ export const api = {
   }> {
     if (!isGenuineWorkout(workout)) {
       throw new Error('Invalid workout session: must have an exercises array and timing, and cannot be an individual exercise record.');
+    }
+
+    const activeUserId = (() => {
+      try {
+        return localStorage.getItem('training_intel_user_id') || '';
+      } catch {
+        return '';
+      }
+    })();
+    if (activeUserId && !workout.userId) {
+      workout.userId = activeUserId;
     }
 
     // 1. Instant local vault persistence (zero latency, zero risk)

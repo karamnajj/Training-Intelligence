@@ -240,6 +240,7 @@ export const EXERCISE_DATABASE: Exercise[] = [
     description: 'Essential bulletproofing exercise for rear delts, external rotators, and postural upper back.',
     muscles: [
       { muscleId: 'posterior_deltoid', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 0.85 },
       { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.7 },
       { muscleId: 'biceps', role: 'STABILIZER', contributionFactor: 0.2 }
     ],
@@ -288,8 +289,9 @@ export const EXERCISE_DATABASE: Exercise[] = [
     mechanics: 'compound',
     description: 'Heavy horizontal rowing building dense mid-back thickness, lat volume, and isometric lower back stability.',
     muscles: [
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 1.0 },
       { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.9 },
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 0.9 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.7 },
       { muscleId: 'posterior_deltoid', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'spinal_erectors', role: 'STABILIZER', contributionFactor: 0.6 }
@@ -306,7 +308,7 @@ export const EXERCISE_DATABASE: Exercise[] = [
     description: 'Primary vertical pulling cable exercise building lat width and scapular depression.',
     muscles: [
       { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
-      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'rhomboids', role: 'SECONDARY', contributionFactor: 0.5 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'posterior_deltoid', role: 'SECONDARY', contributionFactor: 0.3 }
     ],
@@ -323,7 +325,8 @@ export const EXERCISE_DATABASE: Exercise[] = [
     muscles: [
       { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.7 },
-      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'rhomboids', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.4 },
       { muscleId: 'rectus_abdominis', role: 'STABILIZER', contributionFactor: 0.4 }
     ]
   },
@@ -336,8 +339,9 @@ export const EXERCISE_DATABASE: Exercise[] = [
     mechanics: 'compound',
     description: 'Eliminates lower back fatigue to allow maximum overload on upper back, rhomboids, and lats.',
     muscles: [
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 1.0 },
-      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.85 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.7 },
       { muscleId: 'posterior_deltoid', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 }
     ]
@@ -351,8 +355,9 @@ export const EXERCISE_DATABASE: Exercise[] = [
     mechanics: 'compound',
     description: 'Smooth horizontal pull targeting mid-back thickness, rhomboids, and latissimus dorsi.',
     muscles: [
-      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.9 },
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.95 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 0.95 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 },
       { muscleId: 'spinal_erectors', role: 'STABILIZER', contributionFactor: 0.4 }
     ]
@@ -518,14 +523,18 @@ export const EXERCISE_DATABASE: Exercise[] = [
   },
   {
     id: 'triceps_rope_pushdown',
-    name: 'Cable Triceps Rope Pushdown',
+    name: 'Cable Triceps Pushdown',
     category: 'arms',
     movementPattern: 'isolation',
     equipment: 'cable',
     mechanics: 'isolation',
-    description: 'Constant cable tension targeting lateral and medial triceps heads with flared bottom lockout.',
+    description: 'Constant cable tension targeting lateral and medial triceps heads. Compatible with all handle attachments (straight bar, V-bar, rope, or single handles).',
     muscles: [
       { muscleId: 'triceps', role: 'PRIMARY', contributionFactor: 1.0 }
+    ],
+    tips: [
+      'Keep upper arms pinned at your sides throughout the movement.',
+      'Works with any handle attachment: straight bar, V-bar, rope, or single D-handle.'
     ]
   },
   {
@@ -947,8 +956,9 @@ export const EXERCISE_DATABASE: Exercise[] = [
     mechanics: 'compound',
     description: 'Guided horizontal pulling eliminating horizontal sway to lock isolation on lats, rhomboids, and mid-trapezius.',
     muscles: [
-      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.95 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 0.95 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 },
       { muscleId: 'spinal_erectors', role: 'SECONDARY', contributionFactor: 0.4 }
     ],
@@ -1158,7 +1168,8 @@ export const EXERCISE_DATABASE: Exercise[] = [
     description: 'Unilateral bench-supported heavy dumbbell row providing full lat stretch at bottom and strong lat/rhomboid contraction at top.',
     muscles: [
       { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 0.85 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 },
       { muscleId: 'forearms', role: 'SECONDARY', contributionFactor: 0.4 }
     ],
@@ -1173,10 +1184,10 @@ export const EXERCISE_DATABASE: Exercise[] = [
     movementPattern: 'pull_vertical',
     equipment: 'cable',
     mechanics: 'isolation',
-    description: 'Pure shoulder extension exercise isolating the latissimus dorsi without bicep fatigue.',
+    description: 'Pure shoulder extension exercise isolating the latissimus dorsi and back musculature without bicep fatigue.',
     muscles: [
       { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
-      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.4 },
+      { muscleId: 'rhomboids', role: 'SECONDARY', contributionFactor: 0.4 },
       { muscleId: 'triceps', role: 'SECONDARY', contributionFactor: 0.3 }
     ],
     tips: [
@@ -1192,8 +1203,9 @@ export const EXERCISE_DATABASE: Exercise[] = [
     mechanics: 'compound',
     description: 'Heavy mid-back rowing with chest firmly braced against pad to completely eliminate lower back fatigue and momentum.',
     muscles: [
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 1.0 },
       { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.9 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.7 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 }
     ]
   },
@@ -1213,18 +1225,19 @@ export const EXERCISE_DATABASE: Exercise[] = [
   },
   {
     id: 'cable_bayesian_bicep_curl',
-    name: 'Bayesian Cable Bicep Curl',
+    name: 'Bayesian Curl',
     category: 'arms',
     movementPattern: 'isolation',
     equipment: 'cable',
     mechanics: 'isolation',
-    description: 'Facing away from the low pulley to keep the shoulder in hyperextension, producing extreme long-head bicep stretch tension.',
+    description: 'Facing away from the low pulley to keep the shoulder in hyperextension, producing extreme long-head bicep stretch tension. Compatible with all handle attachments (single D-handles, dual handles, straight bar, or rope).',
     muscles: [
       { muscleId: 'biceps', role: 'PRIMARY', contributionFactor: 1.0 },
       { muscleId: 'forearms', role: 'SECONDARY', contributionFactor: 0.3 }
     ],
     tips: [
-      'Take 1-2 steps forward from the stack, let arms be pulled back behind torso before curling.'
+      'Take 1-2 steps forward from the stack, let arms be pulled back behind torso before curling.',
+      'Works with all handles: single D-handles, dual cables, straight bar, or rope attachments.'
     ]
   },
   {
@@ -1338,8 +1351,9 @@ export const EXERCISE_DATABASE: Exercise[] = [
     mechanics: 'compound',
     description: 'Horizontal seated back row with chest pinned firmly against an angled support pad, eliminating spinal loading and lower back fatigue for pure lat, rhomboid, rear delt, and mid-trap hypertrophy.',
     muscles: [
-      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
-      { muscleId: 'trapezius', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 0.95 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.6 },
       { muscleId: 'posterior_deltoid', role: 'SECONDARY', contributionFactor: 0.7 },
       { muscleId: 'biceps', role: 'SECONDARY', contributionFactor: 0.5 },
       { muscleId: 'forearms', role: 'SECONDARY', contributionFactor: 0.3 }
@@ -1383,6 +1397,65 @@ export const EXERCISE_DATABASE: Exercise[] = [
       'Line up your elbow joint with the machine rotational pivot cam.',
       'Keep your upper arms flat against the pad and squeeze triceps hard at peak contraction.'
     ]
+  },
+  {
+    id: 'assisted_dip_machine',
+    name: 'Assisted Dip Machine (Dips)',
+    category: 'arms',
+    movementPattern: 'push_vertical',
+    equipment: 'machine',
+    mechanics: 'compound',
+    description: 'Counterbalanced knee/foot pad machine providing selectable weight assistance to execute strict parallel bar dips, heavily overloading triceps, lower pectorals, and anterior delts.',
+    muscles: [
+      { muscleId: 'triceps', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'chest_lower', role: 'PRIMARY', contributionFactor: 0.8 },
+      { muscleId: 'anterior_deltoid', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'chest_mid', role: 'SECONDARY', contributionFactor: 0.4 }
+    ],
+    tips: [
+      'Choose counterweight to offset bodyweight and maintain full range of motion.',
+      'To prioritize triceps, keep torso upright with elbows tracking close to your sides.',
+      'To engage more lower chest, lean forward slightly at a 15-30 degree angle.'
+    ]
+  },
+  {
+    id: 'assisted_pullup_machine',
+    name: 'Assisted Pull-Up Machine (Pull-Ups)',
+    category: 'back',
+    movementPattern: 'pull_vertical',
+    equipment: 'machine',
+    mechanics: 'compound',
+    description: 'Counterbalanced machine providing adjustable weight assistance to perform full-range vertical pull-ups and chin-ups, building lat width and upper-body pulling strength.',
+    muscles: [
+      { muscleId: 'latissimus_dorsi', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'biceps', role: 'PRIMARY', contributionFactor: 0.7 },
+      { muscleId: 'trapezius', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'forearms', role: 'SECONDARY', contributionFactor: 0.4 }
+    ],
+    tips: [
+      'Set counterweight to enable a full hang at the bottom without resting.',
+      'Initiate the pull by depressing scapulae downward before bending the elbows.',
+      'Pull until chin clears the bar or upper chest approaches the handles.'
+    ]
+  },
+  {
+    id: 'bodyweight_tricep_dips',
+    name: 'Bodyweight Dip (Tricep Focused)',
+    category: 'arms',
+    movementPattern: 'push_vertical',
+    equipment: 'bodyweight',
+    mechanics: 'compound',
+    description: 'Parallel bar dip performed with an upright, vertical torso and elbows tucked close to the ribs, isolating the lateral, medial, and long heads of the triceps while minimizing chest contribution.',
+    muscles: [
+      { muscleId: 'triceps', role: 'PRIMARY', contributionFactor: 1.0 },
+      { muscleId: 'anterior_deltoid', role: 'SECONDARY', contributionFactor: 0.5 },
+      { muscleId: 'chest_lower', role: 'SECONDARY', contributionFactor: 0.3 }
+    ],
+    tips: [
+      'Keep your torso completely vertical and avoid forward torso lean.',
+      'Keep elbows pinned close to your body rather than flaring wide.',
+      'Lower until upper arms are parallel to the floor, then forcefully press back up to full lockout.'
+    ]
   }
 ];
 
@@ -1393,3 +1466,25 @@ export const EXERCISES_MAP: Record<string, Exercise> = EXERCISE_DATABASE.reduce(
   },
   {} as Record<string, Exercise>
 );
+
+// Backward-compatible & flexible handle aliases
+if (EXERCISES_MAP['triceps_rope_pushdown']) {
+  EXERCISES_MAP['triceps_pushdown'] = EXERCISES_MAP['triceps_rope_pushdown'];
+  EXERCISES_MAP['cable_triceps_pushdown'] = EXERCISES_MAP['triceps_rope_pushdown'];
+}
+if (EXERCISES_MAP['cable_bayesian_bicep_curl']) {
+  EXERCISES_MAP['bayesian_curl'] = EXERCISES_MAP['cable_bayesian_bicep_curl'];
+  EXERCISES_MAP['bayesian_bicep_curl'] = EXERCISES_MAP['cable_bayesian_bicep_curl'];
+}
+if (EXERCISES_MAP['assisted_dip_machine']) {
+  EXERCISES_MAP['assisted_dips'] = EXERCISES_MAP['assisted_dip_machine'];
+  EXERCISES_MAP['assisted_dip'] = EXERCISES_MAP['assisted_dip_machine'];
+}
+if (EXERCISES_MAP['assisted_pullup_machine']) {
+  EXERCISES_MAP['assisted_pullups'] = EXERCISES_MAP['assisted_pullup_machine'];
+  EXERCISES_MAP['assisted_pullup'] = EXERCISES_MAP['assisted_pullup_machine'];
+}
+if (EXERCISES_MAP['bodyweight_tricep_dips']) {
+  EXERCISES_MAP['bodyweight_dip_triceps'] = EXERCISES_MAP['bodyweight_tricep_dips'];
+  EXERCISES_MAP['tricep_dips'] = EXERCISES_MAP['bodyweight_tricep_dips'];
+}

@@ -423,18 +423,42 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
       {/* ============================================================ */}
       {view === 'back' && (
         <g id="back-muscles">
-          {/* BACK - Trapezius (Diamond Back) */}
+          {/* BACK - Upper Trapezius (Neck & Collar Yoke) */}
           {renderMuscleGroup(
             'trapezius',
-            'Trapezius',
+            'Upper Traps',
             <>
-              {/* Left & Right Trapezius Diamond */}
+              {/* Upper Trapezius Yoke */}
               <path
-                d="M 100,45 C 108,49 119,53 128,58 C 129,64 126,72 120,80 C 113,92 106,105 100,114 C 94,105 87,92 80,80 C 74,72 71,64 72,58 C 81,53 92,49 100,45 Z"
+                d="M 100,44 C 91,46 81,51 72,58 C 74,64 77,68 82,70 C 89,67 95,66 100,66 C 105,66 111,67 118,70 C 123,68 126,64 128,58 C 119,51 109,46 100,44 Z"
                 fill={getMuscleFill('trapezius')}
                 stroke={getMuscleStroke('trapezius')}
                 strokeWidth={getStrokeWidth('trapezius')}
                 opacity={getOpacity('trapezius')}
+              />
+            </>
+          )}
+
+          {/* BACK - Mid-Back & Rhomboids (Rhomboids & Mid/Lower Traps) */}
+          {renderMuscleGroup(
+            'rhomboids',
+            'Mid-Back & Rhomboids',
+            <>
+              {/* Left Rhomboid / Mid-Trap */}
+              <path
+                d="M 99,67 C 93,67 85,71 80,75 C 79,84 86,98 99,114 Z"
+                fill={getMuscleFill('rhomboids')}
+                stroke={getMuscleStroke('rhomboids')}
+                strokeWidth={getStrokeWidth('rhomboids')}
+                opacity={getOpacity('rhomboids')}
+              />
+              {/* Right Rhomboid / Mid-Trap */}
+              <path
+                d="M 101,67 C 107,67 115,71 120,75 C 121,84 114,98 101,114 Z"
+                fill={getMuscleFill('rhomboids')}
+                stroke={getMuscleStroke('rhomboids')}
+                strokeWidth={getStrokeWidth('rhomboids')}
+                opacity={getOpacity('rhomboids')}
               />
             </>
           )}
