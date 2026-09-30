@@ -11,7 +11,6 @@ export type MuscleId =
   | 'forearms'
   | 'rectus_abdominis'
   | 'obliques'
-  | 'trapezius'
   | 'rhomboids'
   | 'latissimus_dorsi'
   | 'spinal_erectors'
@@ -112,10 +111,13 @@ export interface WorkoutSet {
   type: SetType;
   weightKg: number;
   reps: number;
+  isBodyweight?: boolean;
+  addedWeightKg?: number;
   rpe?: number; // Rate of Perceived Exertion (6 to 10)
   completed: boolean;
   completedAt?: string;
   isPR?: boolean;
+  prType?: 'weight' | 'reps' | 'both';
 }
 
 export interface WorkoutExercise {
@@ -125,6 +127,7 @@ export interface WorkoutExercise {
   sets: WorkoutSet[];
   notes?: string;
   targetRestSeconds?: number;
+  isBodyweight?: boolean;
 }
 
 export interface Workout {
@@ -140,6 +143,7 @@ export interface Workout {
   totalSets: number;
   musclesTrained: MuscleId[];
   rpeAverage?: number;
+  prCount?: number;
 }
 
 export interface WorkoutTemplate {
@@ -177,6 +181,8 @@ export interface UserProfile {
   targetFocusAreas?: MuscleId[];
   focusMuscles?: MuscleId[];
   notes?: string;
+  birthday?: string; // ISO date string YYYY-MM-DD
+  updatedAt?: string;
 }
 
 export interface PersonalRecord {
@@ -239,7 +245,7 @@ export interface AIWorkoutPlan {
     repMin: number;
     repMax: number;
     restSeconds: number;
-    suggestedWeightKg: number;
+    suggestedWeightKg?: number;
     coachingNote: string;
   }>;
 }

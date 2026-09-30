@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Workout, WorkoutExercise, WorkoutSet, Exercise, MuscleId } from '../../types';
-import { EXERCISES_MAP } from '../../lib/exerciseDatabase';
+import { EXERCISES_MAP, isBodyweightExercise } from '../../lib/exerciseDatabase';
 import { ExerciseSelectorModal } from '../workout/ExerciseSelectorModal';
 import {
   Calendar,
@@ -11,19 +11,22 @@ import {
   Check,
   Dumbbell,
   AlertCircle,
-  Save
+  Save,
+  Trophy
 } from 'lucide-react';
 
 interface EditWorkoutModalProps {
   workout: Workout;
   onSave: (updatedWorkout: Workout) => void;
   onClose: () => void;
+  onDeleteWorkout?: (id: string) => void;
 }
 
 export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   workout,
   onSave,
-  onClose
+  onClose,
+  onDeleteWorkout
 }) => {
   // Convert startedAt to local YYYY-MM-DDTHH:mm string for datetime-local input
   const getInitialDateTimeLocal = (isoString?: string) => {
@@ -58,9 +61,9 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
           id: `s_${exIdx}_${sIdx}`,
           setNumber: sIdx + 1,
           type: 'normal',
-          weightKg: ex.suggestedWeightKg || ex.weightKg || 40,
-          reps: ex.repMin || ex.reps || 10,
-          completed: true
+          weightKg: ex.weightKg || 0,
+          reps: ex.reps || 0,
+          completed: false
         }));
       }
       return {
@@ -100,36 +103,42 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   }, [exercises]);
 
   const handleAddExercise = (ex: Exercise) => {
+    const isBW = ex.equipment === 'bodyweight' || isBodyweightExercise(ex.id, ex.name, ex.equipment);
+
     setExercises(prev => [
       ...prev,
       {
         id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         exerciseId: ex.id,
         exerciseName: ex.name,
+        isBodyweight: isBW,
         sets: [
           {
             id: `s_${Date.now()}_1`,
             setNumber: 1,
             type: 'normal',
-            weightKg: 40,
-            reps: 10,
-            completed: true
+            isBodyweight: isBW,
+            weightKg: 0,
+            reps: 0,
+            completed: false
           },
           {
             id: `s_${Date.now()}_2`,
             setNumber: 2,
             type: 'normal',
-            weightKg: 40,
-            reps: 10,
-            completed: true
+            isBodyweight: isBW,
+            weightKg: 0,
+            reps: 0,
+            completed: false
           },
           {
             id: `s_${Date.now()}_3`,
             setNumber: 3,
             type: 'normal',
-            weightKg: 40,
-            reps: 10,
-            completed: true
+            isBodyweight: isBW,
+            weightKg: 0,
+            reps: 0,
+            completed: false
           }
         ]
       }
@@ -137,7 +146,60 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   };
 
   const handleRemoveExercise = (exIdx: number) => {
-    setExercises(prev => prev.filter((_, i) => i !== exIdx));
+    setExercises(prev => {
+      const remaining = prev.filter((_, i) => i !== exIdx);
+      const totalRemainingSets = remaining.reduce(
+        (sum, e) => sum + (Array.isArray(e.sets) ? e.sets.length : 0),
+        0
+      );
+      if (totalRemainingSets === 0 || remaining.length === 0) {
+        if (onDeleteWorkout) {
+          onDeleteWorkout(workout.id);
+        }
+        onClose();
+        return [];
+      }
+      return remaining;
+    });
+  };
+
+  const handleToggleExerciseBodyweight = (exIdx: number) => {
+    setExercises(prev => {
+      const updated = [...prev];
+      const target = updated[exIdx];
+      const def = EXERCISES_MAP[target.exerciseId];
+      const isBWCompatible = isBodyweightExercise(target.exerciseId, target.exerciseName, def?.equipment);
+      if (!isBWCompatible) return prev;
+
+      const currentIsBW = target.isBodyweight ?? true;
+      const nextIsBW = !currentIsBW;
+
+      updated[exIdx] = {
+        ...target,
+        isBodyweight: nextIsBW,
+        sets: (target.sets || []).map((s: any) => ({
+          ...s,
+          isBodyweight: nextIsBW,
+          weightKg: nextIsBW ? 0 : (s.weightKg && s.weightKg !== 0 ? s.weightKg : 20)
+        }))
+      };
+      return updated;
+    });
+  };
+
+  const handleUpdateSetMultiple = (
+    exIdx: number,
+    sIdx: number,
+    updates: Partial<WorkoutSet>
+  ) => {
+    setExercises(prev => {
+      const updated = [...prev];
+      updated[exIdx].sets[sIdx] = {
+        ...updated[exIdx].sets[sIdx],
+        ...updates
+      };
+      return updated;
+    });
   };
 
   const handleAddSet = (exIdx: number) => {
@@ -148,13 +210,19 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
       }
       const currentSets = updated[exIdx].sets;
       const lastSet = currentSets[currentSets.length - 1];
+      const def = EXERCISES_MAP[updated[exIdx].exerciseId];
+      const isBWCompatible = isBodyweightExercise(updated[exIdx].exerciseId, updated[exIdx].exerciseName, def?.equipment);
+      const isBW = isBWCompatible ? (updated[exIdx].isBodyweight ?? true) : false;
+      const lastSetIsBW = lastSet ? (lastSet.isBodyweight ?? isBW) : isBW;
+
       currentSets.push({
         id: `s_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         setNumber: currentSets.length + 1,
         type: 'normal',
-        weightKg: lastSet ? lastSet.weightKg : 20,
-        reps: lastSet ? lastSet.reps : 10,
-        completed: true
+        isBodyweight: isBW ? lastSetIsBW : false,
+        weightKg: 0,
+        reps: 0,
+        completed: false
       });
       return updated;
     });
@@ -163,11 +231,34 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
   const handleRemoveSet = (exIdx: number, setIdx: number) => {
     setExercises(prev => {
       const updated = [...prev];
-      const curr = Array.isArray(updated[exIdx].sets) ? updated[exIdx].sets : [];
-      updated[exIdx].sets = curr
+      const curr = Array.isArray(updated[exIdx]?.sets) ? updated[exIdx].sets : [];
+      const filteredSets = curr
         .filter((_, i) => i !== setIdx)
         .map((s, idx) => ({ ...s, setNumber: idx + 1 }));
-      return updated;
+
+      updated[exIdx] = {
+        ...updated[exIdx],
+        sets: filteredSets
+      };
+
+      const remainingExercises = updated.filter(
+        e => Array.isArray(e.sets) && e.sets.length > 0
+      );
+
+      const totalRemainingSets = remainingExercises.reduce(
+        (sum, e) => sum + (e.sets?.length || 0),
+        0
+      );
+
+      if (totalRemainingSets === 0) {
+        if (onDeleteWorkout) {
+          onDeleteWorkout(workout.id);
+        }
+        onClose();
+        return [];
+      }
+
+      return remainingExercises;
     });
   };
 
@@ -192,6 +283,19 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
 
   const handleSave = () => {
     if (!workoutName.trim()) return;
+
+    const totalRemainingSets = exercises.reduce(
+      (sum, e) => sum + (Array.isArray(e.sets) ? e.sets.length : 0),
+      0
+    );
+
+    if (totalRemainingSets === 0) {
+      if (onDeleteWorkout) {
+        onDeleteWorkout(workout.id);
+      }
+      onClose();
+      return;
+    }
 
     const chosenDate = new Date(dateTimeLocal);
     const durationSec = durationMinutes * 60;
@@ -241,9 +345,17 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
         {/* Header */}
         <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
-              Edit Workout Record
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Edit Workout Record
+              </h3>
+              {(workout.prCount ?? 0) > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 font-extrabold text-xs border border-amber-500/35">
+                  <Trophy className="w-3 h-3 text-amber-500 fill-amber-500" />
+                  {workout.prCount} PR{workout.prCount === 1 ? '' : 's'}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Change workout date, time, exercises, weights, and reps.
             </p>
@@ -340,114 +452,217 @@ export const EditWorkoutModal: React.FC<EditWorkoutModalProps> = ({
             </div>
 
             <div className="space-y-4">
-              {exercises.map((ex, exIdx) => (
-                <div
-                  key={ex.id || exIdx}
-                  className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
-                      {exIdx + 1}. {ex.exerciseName}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveExercise(exIdx)}
-                      className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                      title="Remove Exercise"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+              {exercises.map((ex, exIdx) => {
+                const def = EXERCISES_MAP[ex.exerciseId];
+                const isBWCompatible = isBodyweightExercise(ex.exerciseId, ex.exerciseName, def?.equipment);
+                const isBW = isBWCompatible ? (ex.isBodyweight ?? true) : false;
 
-                  {/* Sets table */}
-                  <div className="space-y-1.5">
-                    {(Array.isArray(ex.sets) ? ex.sets : []).map((s, sIdx) => (
-                      <div
-                        key={s.id || sIdx}
-                        className="flex items-center gap-2 text-xs"
-                      >
-                        <span className="w-10 font-bold text-slate-500 font-mono text-[11px]">
-                          Set {s.setNumber}
+                return (
+                  <div
+                    key={ex.id || exIdx}
+                    className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                          {exIdx + 1}. {ex.exerciseName}
                         </span>
-
-                        <select
-                          value={s.type}
-                          onChange={e => handleUpdateSet(exIdx, sIdx, 'type', e.target.value)}
-                          className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-medium"
-                        >
-                          <option value="normal">Normal</option>
-                          <option value="warmup">Warmup</option>
-                          <option value="drop">Drop</option>
-                          <option value="failure">Failure</option>
-                        </select>
-
-                        <div className="flex items-center gap-1 flex-1">
-                          <input
-                            type="number"
-                            step="0.5"
-                            value={s.weightKg}
-                            onChange={e =>
-                              handleUpdateSet(
-                                exIdx,
-                                sIdx,
-                                'weightKg',
-                                parseFloat(e.target.value) || 0
-                              )
-                            }
-                            className="w-20 p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold text-center"
-                            placeholder="kg"
-                          />
-                          <span className="text-slate-400 text-xs">kg ×</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={s.reps}
-                            onChange={e =>
-                              handleUpdateSet(
-                                exIdx,
-                                sIdx,
-                                'reps',
-                                parseInt(e.target.value) || 0
-                              )
-                            }
-                            className="w-16 p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold text-center"
-                            placeholder="reps"
-                          />
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateSet(exIdx, sIdx, 'completed', !s.completed)}
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs transition-colors ${
-                            s.completed
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-200 dark:bg-slate-700 text-slate-400'
-                          }`}
-                          title="Toggle completed"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSet(exIdx, sIdx)}
-                          className="p-1 text-slate-400 hover:text-rose-500"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {/* Bodyweight toggle button - only if bodyweight compatible */}
+                        {isBWCompatible && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleExerciseBodyweight(exIdx)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-[10px] transition-all border ${
+                              isBW
+                                ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-slate-200'
+                            }`}
+                            title={isBW ? "Bodyweight mode active. Click to switch to barbell/free weight." : "Switch to Bodyweight mode (BW)"}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${isBW ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                            {isBW ? 'Bodyweight (BW)' : 'Bodyweight'}
+                          </button>
+                        )}
                       </div>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveExercise(exIdx)}
+                        className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                        title="Remove Exercise"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleAddSet(exIdx)}
-                      className="mt-1 text-xs text-blue-600 dark:text-blue-400 font-bold hover:underline flex items-center gap-1"
-                    >
-                      <Plus className="w-3 h-3" /> Add Set
-                    </button>
+                    {/* Sets table */}
+                    <div className="space-y-1.5">
+                      {(Array.isArray(ex.sets) ? ex.sets : []).map((s, sIdx) => {
+                        const setBW = isBW ? (s.isBodyweight ?? true) : false;
+                        return (
+                          <div
+                            key={s.id || sIdx}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <div className="w-14 flex items-center gap-1 font-bold text-slate-500 font-mono text-[11px] shrink-0">
+                              <span>Set {s.setNumber}</span>
+                              {s.isPR && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/35 text-[9px] font-black uppercase shadow-2xs"
+                                  title="Personal Record"
+                                >
+                                  <Trophy className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
+                                  PR
+                                </span>
+                              )}
+                            </div>
+
+                            <select
+                              value={s.type}
+                              onChange={e => handleUpdateSet(exIdx, sIdx, 'type', e.target.value)}
+                              className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-medium"
+                            >
+                              <option value="normal">Normal</option>
+                              <option value="warmup">Warmup</option>
+                              <option value="drop">Drop</option>
+                              <option value="failure">Failure</option>
+                            </select>
+
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  min="0"
+                                  value={s.weightKg === 0 || !s.weightKg ? '' : s.weightKg}
+                                  onFocus={e => e.target.select()}
+                                  onChange={e => {
+                                    const raw = e.target.value;
+                                    if (raw === '') {
+                                      handleUpdateSet(
+                                        exIdx,
+                                        sIdx,
+                                        'weightKg',
+                                        0
+                                      );
+                                      return;
+                                    }
+                                    const cleaned = raw.replace(/^0+(?=\d)/, '');
+                                    const val = parseFloat(cleaned);
+                                    handleUpdateSet(
+                                      exIdx,
+                                      sIdx,
+                                      'weightKg',
+                                      isNaN(val) ? 0 : val
+                                    );
+                                  }}
+                                  className={`w-20 pl-1.5 pr-6 py-1.5 rounded-lg bg-white dark:bg-slate-900 border font-mono font-bold text-center text-xs ${
+                                    setBW && (s.weightKg === 0 || !s.weightKg)
+                                      ? 'border-emerald-500/50 placeholder:text-emerald-500'
+                                      : 'border-slate-200 dark:border-slate-700'
+                                  }`}
+                                  placeholder={setBW ? 'BW' : 'kg'}
+                                />
+                                {setBW && (s.weightKg === 0 || !s.weightKg) && (
+                                  <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-extrabold text-emerald-500 uppercase">
+                                    BW
+                                  </span>
+                                )}
+                              </div>
+
+                              {isBW && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const currentlyBW = setBW;
+                                    if (!currentlyBW || (s.weightKg ?? 0) > 0) {
+                                      handleUpdateSetMultiple(exIdx, sIdx, {
+                                        isBodyweight: true,
+                                        weightKg: 0
+                                      });
+                                    } else {
+                                      handleUpdateSetMultiple(exIdx, sIdx, {
+                                        isBodyweight: false,
+                                        weightKg: 20
+                                      });
+                                    }
+                                  }}
+                                  className={`px-1.5 py-1 rounded text-[10px] font-bold border transition-colors ${
+                                    setBW && (s.weightKg === 0 || !s.weightKg)
+                                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border-emerald-500/40'
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
+                                  }`}
+                                  title={setBW ? "Bodyweight set. Click to enter weight." : "Set to Bodyweight (BW)"}
+                                >
+                                  BW
+                                </button>
+                              )}
+
+                              <span className="text-slate-400 text-xs">{setBW && (s.weightKg ?? 0) > 0 ? '+kg ×' : (setBW ? 'BW ×' : 'kg ×')}</span>
+                              <input
+                                type="number"
+                                min="1"
+                                value={s.reps === 0 || !s.reps ? '' : s.reps}
+                                onFocus={e => e.target.select()}
+                                onChange={e => {
+                                  const raw = e.target.value;
+                                  if (raw === '') {
+                                    handleUpdateSet(
+                                      exIdx,
+                                      sIdx,
+                                      'reps',
+                                      0
+                                    );
+                                    return;
+                                  }
+                                  const cleaned = raw.replace(/^0+(?=\d)/, '');
+                                  const val = parseInt(cleaned, 10);
+                                  handleUpdateSet(
+                                    exIdx,
+                                    sIdx,
+                                    'reps',
+                                    isNaN(val) ? 0 : val
+                                  );
+                                }}
+                                className="w-16 p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold text-center text-xs"
+                                placeholder="reps"
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateSet(exIdx, sIdx, 'completed', !s.completed)}
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs transition-colors ${
+                                s.completed
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-200 dark:bg-slate-700 text-slate-400'
+                              }`}
+                              title="Toggle completed"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSet(exIdx, sIdx)}
+                              className="p-1 text-slate-400 hover:text-rose-500"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+
+                      <button
+                        type="button"
+                        onClick={() => handleAddSet(exIdx)}
+                        className="mt-1 text-xs text-blue-600 dark:text-blue-400 font-bold hover:underline flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" /> Add Set
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

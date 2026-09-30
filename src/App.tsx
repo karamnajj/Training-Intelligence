@@ -13,8 +13,8 @@ import {
 import { api } from './lib/api';
 import { storageVault, isGenuineWorkout, getDeletedWorkoutIds } from './lib/storageVault';
 import { calculateMuscleExposures, buildTrainingRadar, generateRecommendedWorkoutSession } from './lib/muscleMath';
-import { EXERCISES_MAP } from './lib/exerciseDatabase';
-import { WORKOUT_TEMPLATES } from './lib/seedData';
+import { EXERCISES_MAP, isBodyweightExercise } from './lib/exerciseDatabase';
+import { WORKOUT_TEMPLATES, DEFAULT_USER_PROFILE } from './lib/seedData';
 import {
   auth,
   subscribeToFirebaseAuth,
@@ -24,7 +24,8 @@ import {
   subscribeToWorkoutsFromFirestore,
   saveWorkoutToFirestore,
   getTemplatesFromFirestore,
-  getUserProfileFromFirestore
+  getUserProfileFromFirestore,
+  saveUserProfileToFirestore
 } from './lib/firebase';
 import {
   getActiveWorkoutSession,
@@ -47,6 +48,7 @@ import { WelcomeAuthView } from './components/auth/WelcomeAuthView';
 import { AuthUser } from './types';
 import { formatAthleteName } from './lib/nameUtils';
 import { initGA, trackPageView, trackWorkoutStarted, trackWorkoutCompleted } from './lib/analytics';
+import { initNativeApp } from './lib/nativeBridge';
 
 // Icons
 import {
@@ -252,6 +254,34 @@ export function App() {
     }
   };
 
+  // Native Capacitor Bridge initialization (Android back button, status bar, splash screen)
+  useEffect(() => {
+    initNativeApp(() => {
+      if (showProfileModal) {
+        setShowProfileModal(false);
+        return true;
+      }
+      if (showMobileWorkoutMenu) {
+        setShowMobileWorkoutMenu(false);
+        return true;
+      }
+      if (showAuthModal) {
+        setShowAuthModal(false);
+        return true;
+      }
+      if (activeTab === 'workout') {
+        setPersistedSession(getActiveWorkoutSession());
+        setActiveTab('dashboard');
+        return true;
+      }
+      if (activeTab !== 'dashboard') {
+        setActiveTab('dashboard');
+        return true;
+      }
+      return false;
+    });
+  }, [showProfileModal, showMobileWorkoutMenu, showAuthModal, activeTab]);
+
   useEffect(() => {
     loadData();
 
@@ -333,10 +363,38 @@ export function App() {
           ]);
 
           if (cloudProfile) {
-            const cleanProfName = formatAthleteName(cloudProfile.name, email);
-            const resolvedProf = { ...cloudProfile, name: cleanProfName };
+            const localProf = await storageVault.getProfile();
+            const cleanProfName = formatAthleteName(localProf?.name || cloudProfile.name, email);
+
+            // Compare update timestamps: do NOT let older cloudProfile overwrite newer local changes!
+            const cloudTime = cloudProfile.updatedAt ? new Date(cloudProfile.updatedAt).getTime() : 0;
+            const localTime = (localProf as any)?.updatedAt ? new Date((localProf as any).updatedAt).getTime() : 0;
+
+            let resolvedProf: UserProfile;
+            if (localProf && localTime > cloudTime) {
+              // Local is newer: preserve local and update cloud!
+              resolvedProf = {
+                ...DEFAULT_USER_PROFILE,
+                ...cloudProfile,
+                ...localProf,
+                name: cleanProfName
+              };
+              saveUserProfileToFirestore(uid, resolvedProf, email, cleanProfName).catch(() => {});
+            } else {
+              resolvedProf = {
+                ...DEFAULT_USER_PROFILE,
+                ...(localProf || {}),
+                ...cloudProfile,
+                name: cleanProfName
+              };
+            }
             setProfile(resolvedProf);
             storageVault.saveProfile(resolvedProf).catch(() => {});
+          } else {
+            const localProf = await storageVault.getProfile();
+            if (localProf) {
+              saveUserProfileToFirestore(uid, localProf, email, localProf.name).catch(() => {});
+            }
           }
 
           // Full bidirectional union between Firestore and local/server workouts
@@ -489,20 +547,25 @@ export function App() {
 
   const handleStartTemplate = (template: WorkoutTemplate) => {
     trackWorkoutStarted(template.name, template.id);
-    const exercises: WorkoutExercise[] = template.exercises.map((e, idx) => ({
-      id: `we_${Date.now()}_${idx}`,
-      exerciseId: e.exerciseId,
-      exerciseName: e.exerciseName,
-      targetRestSeconds: e.restSeconds,
-      sets: Array.from({ length: e.targetSets || e.sets || 3 }).map((_, sIdx) => ({
-        id: `s_${Date.now()}_${idx}_${sIdx}`,
-        setNumber: sIdx + 1,
-        type: 'normal',
-        weightKg: 40,
-        reps: e.repMin || 10,
-        completed: false
-      }))
-    }));
+    const exercises: WorkoutExercise[] = template.exercises.map((e, idx) => {
+      const isBW = isBodyweightExercise(e.exerciseId, e.exerciseName);
+      return {
+        id: `we_${Date.now()}_${idx}`,
+        exerciseId: e.exerciseId,
+        exerciseName: e.exerciseName,
+        targetRestSeconds: e.restSeconds,
+        isBodyweight: isBW,
+        sets: Array.from({ length: e.targetSets || e.sets || 3 }).map((_, sIdx) => ({
+          id: `s_${Date.now()}_${idx}_${sIdx}`,
+          setNumber: sIdx + 1,
+          type: 'normal',
+          weightKg: 0,
+          reps: 0,
+          isBodyweight: isBW,
+          completed: false
+        }))
+      };
+    });
     const newSession = createAndSaveActiveSession({
       name: template.name,
       startedAt: new Date().toISOString(),
@@ -514,20 +577,25 @@ export function App() {
   };
 
   const handleStartGeneratedPlan = (plan: AIWorkoutPlan) => {
-    const exercises: WorkoutExercise[] = plan.exercises.map((e, idx) => ({
-      id: `we_${Date.now()}_${idx}`,
-      exerciseId: e.exerciseId,
-      exerciseName: e.exerciseName,
-      targetRestSeconds: e.restSeconds,
-      sets: Array.from({ length: e.sets || 3 }).map((_, sIdx) => ({
-        id: `s_${Date.now()}_${idx}_${sIdx}`,
-        setNumber: sIdx + 1,
-        type: 'normal',
-        weightKg: e.suggestedWeightKg || 30,
-        reps: e.repMin || 8,
-        completed: false
-      }))
-    }));
+    const exercises: WorkoutExercise[] = plan.exercises.map((e, idx) => {
+      const isBW = isBodyweightExercise(e.exerciseId, e.exerciseName);
+      return {
+        id: `we_${Date.now()}_${idx}`,
+        exerciseId: e.exerciseId,
+        exerciseName: e.exerciseName,
+        targetRestSeconds: e.restSeconds,
+        isBodyweight: isBW,
+        sets: Array.from({ length: e.sets || 3 }).map((_, sIdx) => ({
+          id: `s_${Date.now()}_${idx}_${sIdx}`,
+          setNumber: sIdx + 1,
+          type: 'normal',
+          isBodyweight: isBW,
+          weightKg: 0,
+          reps: 0,
+          completed: false
+        }))
+      };
+    });
     const newSession = createAndSaveActiveSession({
       name: plan.name,
       notes: plan.rationale,
@@ -541,6 +609,8 @@ export function App() {
 
   const handleRepeatWorkout = (workout: Workout) => {
     const exercises = (workout.exercises || []).map((e: any) => {
+      const isBWCompatible = isBodyweightExercise(e.exerciseId, e.exerciseName);
+      const isBW = isBWCompatible ? (e.isBodyweight ?? true) : false;
       const rawSets: any[] = Array.isArray(e.sets)
         ? e.sets
         : (typeof e.sets === 'number'
@@ -548,8 +618,9 @@ export function App() {
               id: `s_${Date.now()}_${sIdx}`,
               setNumber: sIdx + 1,
               type: 'normal',
-              weightKg: e.suggestedWeightKg || e.weightKg || 40,
-              reps: e.repMin || e.reps || 10,
+              isBodyweight: isBW,
+              weightKg: 0,
+              reps: 0,
               completed: false
             }))
           : (e.sets && typeof e.sets === 'object'
@@ -557,12 +628,19 @@ export function App() {
             : []));
       return {
         ...e,
+        isBodyweight: isBW,
         id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        sets: rawSets.map((s: any, sIdx: number) => ({
-          ...s,
-          id: `s_${Date.now()}_${sIdx}_${Math.random().toString(36).substr(2, 4)}`,
-          completed: false
-        }))
+        sets: rawSets.map((s: any, sIdx: number) => {
+          const setBW = isBW ? (s.isBodyweight ?? true) : false;
+          return {
+            ...s,
+            isBodyweight: setBW,
+            weightKg: setBW && (s.weightKg === 0 || !s.weightKg) ? 0 : (s.weightKg ?? 0),
+            reps: s.reps ?? 0,
+            id: `s_${Date.now()}_${sIdx}_${Math.random().toString(36).substr(2, 4)}`,
+            completed: false
+          };
+        })
       };
     });
     const newSession = createAndSaveActiveSession({
@@ -833,8 +911,13 @@ export function App() {
 
   const handleUpdateProfile = async (updated: Partial<UserProfile>) => {
     try {
-      const p = await api.updateProfile(updated);
+      const payload: Partial<UserProfile> = {
+        ...updated,
+        updatedAt: new Date().toISOString()
+      };
+      const p = await api.updateProfile(payload);
       setProfile(p);
+      await storageVault.saveProfile(p);
       if (updated.name && currentUser) {
         const updatedUser = { ...currentUser, username: updated.name };
         setCurrentUser(updatedUser);
@@ -1158,6 +1241,7 @@ export function App() {
             {activeTab === 'history' && (
               <HistoryView
                 workouts={workouts}
+                personalRecords={personalRecords}
                 onRepeatWorkout={handleRepeatWorkout}
                 onUpdateWorkout={handleUpdateWorkout}
                 onDeleteWorkout={handleDeleteWorkout}

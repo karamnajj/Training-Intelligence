@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { UserProfile, MuscleId } from '../../types';
 import { MUSCLE_CATALOG } from '../../lib/muscleMath';
 import { api } from '../../lib/api';
 import { auth, signInWithGoogle, saveWorkoutToFirestore } from '../../lib/firebase';
 import { storageVault } from '../../lib/storageVault';
-import { X, User, Settings, ShieldAlert, RotateCcw, Check, Sparkles, Download, Upload, RefreshCw, ShieldCheck, Cloud } from 'lucide-react';
+import { X, User, Settings, ShieldAlert, RotateCcw, Check, Sparkles, Download, Upload, RefreshCw, ShieldCheck, Cloud, Calendar, Cake } from 'lucide-react';
 
 interface ProfileModalProps {
   profile: UserProfile;
@@ -24,6 +24,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   isGuest = false
 }) => {
   const [name, setName] = useState(profile.name);
+  const [birthday, setBirthday] = useState(profile.birthday || '');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>(profile.weightUnit || 'kg');
   const [experienceLevel, setExperienceLevel] = useState(profile.experienceLevel || 'intermediate');
   const [trainingDaysPerWeek, setTrainingDaysPerWeek] = useState(profile.trainingDaysPerWeek || 4);
@@ -34,6 +35,29 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [vaultStatusMsg, setVaultStatusMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    setName(profile.name || '');
+    setBirthday(profile.birthday || '');
+    setWeightUnit(profile.weightUnit || 'kg');
+    setExperienceLevel(profile.experienceLevel || 'intermediate');
+    setTrainingDaysPerWeek(profile.trainingDaysPerWeek || 4);
+    setPrimaryGoal(profile.primaryGoal || 'hypertrophy');
+    setFocusMuscles(profile.focusMuscles || []);
+  }, [profile]);
+
+  const calculatedAge = useMemo(() => {
+    if (!birthday) return null;
+    const birth = new Date(birthday);
+    if (isNaN(birth.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - birth.getFullYear();
+    const m = now.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age >= 0 && age <= 120 ? age : null;
+  }, [birthday]);
 
   const handleToggleFocusMuscle = (id: MuscleId) => {
     setFocusMuscles(prev =>
@@ -104,10 +128,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   const handleSave = () => {
     onSave({
-      name,
+      name: name.trim(),
+      birthday: birthday.trim(),
       weightUnit,
+      preferredUnit: weightUnit,
       experienceLevel: experienceLevel as any,
-      trainingDaysPerWeek,
+      trainingDaysPerWeek: Number(trainingDaysPerWeek) || 4,
       primaryGoal: primaryGoal as any,
       focusMuscles
     });
@@ -135,17 +161,39 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         {/* Content */}
         <div className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
-          {/* Athlete Name */}
-          <div>
-            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              Athlete Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold text-sm focus:ring-2 focus:ring-blue-500"
-            />
+          {/* Athlete Name & Birthday */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Athlete Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                  Birthday
+                </label>
+                {calculatedAge !== null && (
+                  <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">
+                    Age: {calculatedAge}
+                  </span>
+                )}
+              </div>
+              <input
+                type="date"
+                value={birthday}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={e => setBirthday(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
 
           {/* Training Goal & Experience Level */}

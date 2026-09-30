@@ -1,7 +1,6 @@
 /**
  * Resolves a clean, human-friendly athlete name from display name, username, or email.
- * Guarantees that email prefixes like "karamnajj79" are properly parsed into the real human name ("Karam"),
- * removing random trailing digits, underscores, dots, or concatenated handles.
+ * Properly parses email prefixes removing trailing digits, underscores, dots, or concatenated handles.
  */
 export function formatAthleteName(rawName?: string | null, email?: string | null): string {
   const cleanEmail = (email || '').trim().toLowerCase();
@@ -15,12 +14,7 @@ export function formatAthleteName(rawName?: string | null, email?: string | null
     candidate.toLowerCase() !== 'user' &&
     candidate.toLowerCase() !== 'guest'
   ) {
-    // Specific legacy check: if username is raw handle "karamnajj79", format as "Karam"
-    if (candidate.toLowerCase() === 'karamnajj79' || candidate.toLowerCase() === 'karamnajj') {
-      return 'Karam';
-    }
-
-    // Capitalize each word nicely (e.g. "john doe" -> "John Doe", "karam najjar" -> "Karam Najjar", "karam 2" -> "Karam 2")
+    // Capitalize each word nicely (e.g. "john doe" -> "John Doe", "alex vance" -> "Alex Vance")
     const words = candidate.split(/\s+/).filter(Boolean);
     if (words.length > 0) {
       return words
@@ -39,12 +33,6 @@ export function formatAthleteName(rawName?: string | null, email?: string | null
   }
 
   if (handle) {
-    const cleanHandle = handle.toLowerCase();
-    // Specific owner account check
-    if (cleanHandle === 'karamnajj79' || cleanHandle === 'karamnajj' || cleanEmail === 'karamnajj79@gmail.com') {
-      return 'Karam';
-    }
-
     // Convert handle into clean athlete name:
     // e.g. "alex_vance" -> "Alex Vance", "john.doe" -> "John Doe", "marcus-fit" -> "Marcus Fit"
     let stripped = handle.replace(/^[0-9]+/, '').replace(/[0-9]+$/, '');

@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import Markdown from 'react-markdown';
 import {
   TrainingRadar,
   MuscleExposureData,
   AIWorkoutPlan,
   AIMessage,
   Workout,
-  MuscleId
+  MuscleId,
+  UserProfile
 } from '../../types';
 import { api } from '../../lib/api';
-import { MUSCLE_CATALOG, FRESHNESS_COLORS } from '../../lib/muscleMath';
+import { MUSCLE_CATALOG, FRESHNESS_COLORS, formatTimeSinceTraining, calculateAthleteAge } from '../../lib/muscleMath';
 import {
   Sparkles,
   Send,
@@ -29,28 +29,75 @@ import {
 interface AITrainerProps {
   radar: TrainingRadar;
   musclesData: Record<MuscleId, MuscleExposureData>;
+  userProfile?: UserProfile;
   onStartGeneratedWorkout: (plan: AIWorkoutPlan) => void;
   onSaveTemplate: (plan: AIWorkoutPlan) => void;
 }
 
+// Clean and reliable message formatter that completely strips asterisks and formats clean text
+const CoachMessageContent: React.FC<{ content: string }> = ({ content }) => {
+  if (!content) return null;
+
+  // Strip all asterisks completely so no bold/italic markdown stars or text-in-asterisks ever appear
+  const sanitized = content
+    .replace(/\*{1,3}([^*]+?)\*{1,3}/g, '$1')
+    .replace(/\*/g, '');
+
+  const rawLines = sanitized.split('\n');
+
+  return (
+    <div className="space-y-1.5 text-xs sm:text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+      {rawLines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className="h-1" />;
+        }
+
+        const isBullet = trimmed.startsWith('•') || trimmed.startsWith('- ');
+        if (isBullet) {
+          const itemText = trimmed.replace(/^[•\-]\s*/, '');
+          return (
+            <div key={idx} className="flex items-start gap-2 pl-1 my-0.5">
+              <span className="text-blue-500 font-bold shrink-0 mt-0.5 leading-none">•</span>
+              <div className="flex-1">{itemText}</div>
+            </div>
+          );
+        }
+
+        return (
+          <p key={idx} className="my-0.5">
+            {trimmed}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
 export const AITrainer: React.FC<AITrainerProps> = ({
   radar,
   musclesData,
+  userProfile,
   onStartGeneratedWorkout,
   onSaveTemplate
 }) => {
-  const getDefaultWelcome = useCallback((): AIMessage => ({
-    id: 'msg_welcome',
-    sender: 'assistant',
-    timestamp: new Date().toISOString(),
-    text: `Hello! I am your **Training Intelligence AI Coach**.\n\nI have real-time access to your logged workout history, muscle fatigue models, and 1RM progressions. \n\n**Current Status**:\n• **Recommended Focus Today**: ${radar.suggestedFocusToday.title}\n• **Rationale**: ${radar.suggestedFocusToday.rationale}\n\nAsk me any question or request a hyper-targeted workout!`,
-    suggestedActions: [
-      'What should I train today?',
-      'Generate a workout for today',
-      'Which muscles am I neglecting?',
-      'How is my bench progression?'
-    ]
-  }), [radar.suggestedFocusToday.title, radar.suggestedFocusToday.rationale]);
+  const getDefaultWelcome = useCallback((): AIMessage => {
+    const athleteName = userProfile?.name?.trim() || 'Athlete';
+    const readyMuscles = radar.recoveredMuscles.slice(0, 3).map(m => m.name).join(', ') || 'upper body';
+
+    return {
+      id: 'msg_welcome',
+      sender: 'assistant',
+      timestamp: new Date().toISOString(),
+      text: `Hey ${athleteName}. Ready for today?\n\nYour ${readyMuscles} are recovered and good to go. The data suggests ${radar.suggestedFocusToday.title} today.\n\nLet me know how you're feeling or what you want to hit, and we can get right into it.`,
+      suggestedActions: [
+        'What should I train today?',
+        'How was my last workout?',
+        'Did I hit any PRs recently?',
+        'Generate a workout for today'
+      ]
+    };
+  }, [radar.suggestedFocusToday.title, radar.recoveredMuscles, userProfile?.name]);
 
   const [messages, setMessages] = useState<AIMessage[]>([getDefaultWelcome()]);
   const [inputMessage, setInputMessage] = useState('');
@@ -185,7 +232,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
           id: `msg_ai_${Date.now()}`,
           sender: 'assistant',
           timestamp: new Date().toISOString(),
-          text: `I've synthesized a customized **${plan.name}** based on your freshness data (${plan.durationMinutes} min):\n\n${plan.rationale}`,
+          text: `Here is a plan for ${plan.name} (${plan.durationMinutes} min):\n\n${plan.rationale}`,
           recommendedWorkout: plan,
           suggestedActions: ['Start this workout now', 'Adjust duration to 45 mins', 'Which muscles are neglected?']
         };
@@ -209,7 +256,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
         id: `msg_err_${Date.now()}`,
         sender: 'assistant',
         timestamp: new Date().toISOString(),
-        text: `Here is your current grounded assessment:\n\n• **Suggested Focus**: ${radar.suggestedFocusToday.title}\n• **High Exposure Group**: ${radar.highExposureMuscles.map(m => m.name).join(', ') || 'None'}\n• **Recovered Ready Group**: ${radar.recoveredMuscles.map(m => m.name).join(', ') || 'All Balanced'}`
+        text: `Had a quick network issue, but looking at your data: ${radar.suggestedFocusToday.title} is ready to train today. Let me know what you want to hit.`
       };
       appendMessage(errorMsg);
     } finally {
@@ -231,7 +278,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
         id: `msg_ai_${Date.now()}`,
         sender: 'assistant',
         timestamp: new Date().toISOString(),
-        text: `Generated **${plan.name}** (~${plan.durationMinutes} min).\n\n${plan.rationale}`,
+        text: `Here is a plan for ${plan.name} (~${plan.durationMinutes} min).\n\n${plan.rationale}`,
         recommendedWorkout: plan
       };
       appendMessage(aiMsg);
@@ -345,9 +392,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
                       }`}
                     >
                       {isAssistant ? (
-                        <div className="ai-markdown space-y-2 leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:space-y-1 [&>ol]:list-decimal [&>ol]:pl-4 [&>strong]:font-bold [&>strong]:text-slate-950 dark:[&>strong]:text-white [&>h3]:font-bold [&>h3]:text-sm [&>h3]:mt-3 [&>h3]:mb-1 [&>h4]:font-bold [&>h4]:text-xs [&>h4]:mt-2 [&>h4]:mb-1 [&>li]:leading-normal">
-                          <Markdown>{msg.text}</Markdown>
-                        </div>
+                        <CoachMessageContent content={msg.text} />
                       ) : (
                         <div className="whitespace-pre-wrap">{msg.text}</div>
                       )}
@@ -385,9 +430,11 @@ export const AITrainer: React.FC<AITrainerProps> = ({
                                   {ex.sets} sets × {ex.repMin}-{ex.repMax} reps (Rest {ex.restSeconds}s)
                                 </span>
                               </div>
-                              <span className="font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-1 rounded-md">
-                                {ex.suggestedWeightKg} kg
-                              </span>
+                              {Boolean(ex.suggestedWeightKg && ex.suggestedWeightKg > 0) && (
+                                <span className="font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-1 rounded-md">
+                                  {ex.suggestedWeightKg} kg
+                                </span>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -650,8 +697,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
               {radar.highExposureMuscles.length > 0 ? (
                 <div className="space-y-1.5">
                   {radar.highExposureMuscles.map(m => {
-                    const daysAgo = m.daysSinceTraining === null ? null : Math.floor(m.daysSinceTraining);
-                    const label = daysAgo === null ? 'Never' : daysAgo === 0 ? 'Today' : `${daysAgo}d ago`;
+                    const label = formatTimeSinceTraining(m.daysSinceTraining, m.lastTrainedAt, new Date(), true);
                     return (
                       <div
                         key={m.muscleId}
@@ -676,8 +722,7 @@ export const AITrainer: React.FC<AITrainerProps> = ({
               {radar.recoveredMuscles.length > 0 ? (
                 <div className="space-y-1.5">
                   {radar.recoveredMuscles.slice(0, 4).map(m => {
-                    const daysAgo = m.daysSinceTraining === null ? null : Math.floor(m.daysSinceTraining);
-                    const label = daysAgo === null ? 'Never' : daysAgo === 0 ? 'Today' : `${daysAgo}d ago`;
+                    const label = formatTimeSinceTraining(m.daysSinceTraining, m.lastTrainedAt, new Date(), true);
                     return (
                       <div
                         key={m.muscleId}

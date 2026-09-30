@@ -33,7 +33,6 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         repMin: 6,
         repMax: 8,
         restSeconds: 150,
-        suggestedWeightKg: 82.5,
         notes: 'Control eccentric to lower sternum.'
       },
       {
@@ -42,8 +41,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 8,
         repMax: 10,
-        restSeconds: 120,
-        suggestedWeightKg: 28
+        restSeconds: 120
       },
       {
         exerciseId: 'dumbbell_lateral_raise',
@@ -51,8 +49,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 4,
         repMin: 12,
         repMax: 15,
-        restSeconds: 75,
-        suggestedWeightKg: 12.5
+        restSeconds: 75
       },
       {
         exerciseId: 'triceps_rope_pushdown',
@@ -60,8 +57,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 10,
         repMax: 12,
-        restSeconds: 90,
-        suggestedWeightKg: 27.5
+        restSeconds: 90
       }
     ]
   },
@@ -78,8 +74,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 6,
         repMax: 8,
-        restSeconds: 150,
-        suggestedWeightKg: 75
+        restSeconds: 150
       },
       {
         exerciseId: 'lat_pulldown',
@@ -87,8 +82,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 8,
         repMax: 10,
-        restSeconds: 120,
-        suggestedWeightKg: 65
+        restSeconds: 120
       },
       {
         exerciseId: 'face_pulls',
@@ -96,8 +90,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 12,
         repMax: 15,
-        restSeconds: 75,
-        suggestedWeightKg: 22.5
+        restSeconds: 75
       },
       {
         exerciseId: 'barbell_bicep_curl',
@@ -105,8 +98,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 8,
         repMax: 10,
-        restSeconds: 90,
-        suggestedWeightKg: 32.5
+        restSeconds: 90
       }
     ]
   },
@@ -123,8 +115,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 4,
         repMin: 5,
         repMax: 6,
-        restSeconds: 180,
-        suggestedWeightKg: 105
+        restSeconds: 180
       },
       {
         exerciseId: 'romanian_deadlift',
@@ -132,8 +123,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 8,
         repMax: 10,
-        restSeconds: 150,
-        suggestedWeightKg: 95
+        restSeconds: 150
       },
       {
         exerciseId: 'leg_extension',
@@ -141,8 +131,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 12,
         repMax: 15,
-        restSeconds: 90,
-        suggestedWeightKg: 55
+        restSeconds: 90
       },
       {
         exerciseId: 'standing_calf_raise',
@@ -150,8 +139,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 4,
         repMin: 12,
         repMax: 15,
-        restSeconds: 60,
-        suggestedWeightKg: 70
+        restSeconds: 60
       }
     ]
   },
@@ -168,8 +156,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 6,
         repMax: 8,
-        restSeconds: 150,
-        suggestedWeightKg: 95
+        restSeconds: 150
       },
       {
         exerciseId: 'barbell_bench_press',
@@ -177,8 +164,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 6,
         repMax: 8,
-        restSeconds: 150,
-        suggestedWeightKg: 80
+        restSeconds: 150
       },
       {
         exerciseId: 'chest_supported_row',
@@ -186,8 +172,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 8,
         repMax: 10,
-        restSeconds: 120,
-        suggestedWeightKg: 45
+        restSeconds: 120
       },
       {
         exerciseId: 'overhead_barbell_press',
@@ -195,8 +180,7 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
         sets: 3,
         repMin: 8,
         repMax: 8,
-        restSeconds: 120,
-        suggestedWeightKg: 47.5
+        restSeconds: 120
       }
     ]
   }
@@ -291,7 +275,7 @@ export function getSeedWorkouts(): Workout[] {
       notes: 'Great lat stretch and controlled rowing eccentric.',
       totalVolumeKg: 4620,
       totalSets: 12,
-      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'posterior_deltoid', 'biceps'],
       rpeAverage: 8.2,
       exercises: [
         {
@@ -409,7 +393,7 @@ export function getGuestShowcaseWorkouts(refDate: Date = new Date()): Workout[] 
       notes: 'Excellent lat contraction and heavy seated cable rows. Great bicep and rear delt accessory pump.',
       totalVolumeKg: 4620,
       totalSets: 11,
-      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'posterior_deltoid', 'biceps'],
       rpeAverage: 8.4,
       exercises: [
         {
@@ -683,7 +667,7 @@ function _legacySeedWorkouts(): Workout[] {
       notes: 'Strong mind-muscle connection on chest supported rows and face pulls.',
       totalVolumeKg: 3890,
       totalSets: 12,
-      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'posterior_deltoid', 'biceps'],
       rpeAverage: 7.8,
       exercises: [
         {
@@ -847,7 +831,7 @@ function _legacySeedWorkouts(): Workout[] {
       notes: 'Chest-supported row double progression target reached.',
       totalVolumeKg: 4120,
       totalSets: 13,
-      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'trapezius', 'posterior_deltoid', 'biceps'],
+      musclesTrained: ['latissimus_dorsi', 'rhomboids', 'posterior_deltoid', 'biceps'],
       rpeAverage: 8.0,
       exercises: [
         {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { MuscleId, MuscleExposureData } from '../../types';
 import { BodyMapSVG } from './BodyMapSVG';
 import { MuscleDetailModal } from './MuscleDetailModal';
-import { MUSCLE_CATALOG, FRESHNESS_COLORS } from '../../lib/muscleMath';
+import { MUSCLE_CATALOG, FRESHNESS_COLORS, formatTimeSinceTraining } from '../../lib/muscleMath';
 import { Table, Info, Dumbbell } from 'lucide-react';
 
 interface BodyMapProps {
@@ -141,11 +141,7 @@ export const BodyMap: React.FC<BodyMapProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
-                        {m.daysSinceTraining === null
-                          ? 'Never'
-                          : Math.floor(m.daysSinceTraining) === 0
-                          ? 'Today'
-                          : `${Math.floor(m.daysSinceTraining)}d ago`}
+                        {formatTimeSinceTraining(m.daysSinceTraining, m.lastTrainedAt, new Date(), true)}
                       </td>
                       <td className="py-3 px-3 font-medium text-slate-800 dark:text-slate-200">
                         {m.effectiveSets7d}
@@ -231,7 +227,7 @@ export const BodyMap: React.FC<BodyMapProps> = ({
                     </div>
                     <p className="text-xs text-slate-300">
                       Status: <strong className="text-white">{FRESHNESS_COLORS[inspectorData.freshnessStatus].label}</strong> •{' '}
-                      Last: {inspectorData.daysSinceTraining === null ? 'Never' : `${Math.floor(inspectorData.daysSinceTraining)}d ago`} •{' '}
+                      Last: {formatTimeSinceTraining(inspectorData.daysSinceTraining, inspectorData.lastTrainedAt, new Date(), true)} •{' '}
                       7-day sets: {inspectorData.effectiveSets7d}
                     </p>
                   </div>

@@ -14,4 +14,7 @@ coverage/
 *.crt
 id_rsa*
 *service-account*.json
+*.backup.json
+.env.local
+.env.*.local
 

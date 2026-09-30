@@ -322,41 +322,92 @@ export const api = {
 
   // Profile
   async getProfile(): Promise<UserProfile> {
+    const vaulted = await storageVault.getProfile();
     try {
       const res = await fetch(`${BASE_URL}/profile`, {
         headers: this.getHeaders()
       });
-      if (!res.ok) throw new Error('Failed to fetch profile');
-      const p: UserProfile = await res.json();
-      if (p && p.id) {
-        await storageVault.saveProfile(p);
+      if (res.ok) {
+        const p: UserProfile = await res.json();
+        if (p && p.id) {
+          const vaultTime = (vaulted as any)?.updatedAt ? new Date((vaulted as any).updatedAt).getTime() : 0;
+          const serverTime = (p as any)?.updatedAt ? new Date((p as any).updatedAt).getTime() : 0;
+          const merged: UserProfile = vaultTime > serverTime && vaulted
+            ? { ...DEFAULT_USER_PROFILE, ...p, ...vaulted }
+            : { ...DEFAULT_USER_PROFILE, ...(vaulted || {}), ...p };
+
+          await storageVault.saveProfile(merged);
+          if (auth.currentUser) {
+            saveUserProfileToFirestore(auth.currentUser.uid, merged, auth.currentUser.email || '', merged.name).catch(() => {});
+          }
+          return merged;
+        }
       }
-      return p;
-    } catch {
-      const vaulted = await storageVault.getProfile();
-      if (vaulted && vaulted.id) return vaulted;
-      return DEFAULT_USER_PROFILE;
-    }
+    } catch {}
+
+    if (vaulted && vaulted.id) return vaulted;
+    return DEFAULT_USER_PROFILE;
   },
 
   async updateProfile(profile: Partial<UserProfile>): Promise<UserProfile> {
+    const existing = (await storageVault.getProfile()) || DEFAULT_USER_PROFILE;
+    const nowIso = new Date().toISOString();
+    const merged: UserProfile = {
+      ...existing,
+      ...profile,
+      id: existing.id || `prof_${Date.now()}`,
+      updatedAt: nowIso
+    };
+
+    // 1. Immediately persist to storageVault so local edits are never lost
+    await storageVault.saveProfile(merged);
+
+    // 2. Persist to Firebase Firestore if athlete is authenticated
+    if (auth.currentUser) {
+      try {
+        await saveUserProfileToFirestore(
+          auth.currentUser.uid,
+          merged,
+          auth.currentUser.email || '',
+          merged.name
+        );
+      } catch (fbErr) {
+        console.warn('[Firebase] Profile cloud sync notice:', fbErr);
+      }
+    }
+
+    // 3. Persist to server backend storage with the complete merged profile
     try {
       const res = await fetch(`${BASE_URL}/profile`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify(profile)
+        body: JSON.stringify(merged)
       });
-      const data = await res.json();
-      if (data.profile) {
-        await storageVault.saveProfile(data.profile);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.profile) {
+          const finalProfile: UserProfile = {
+            ...merged,
+            ...data.profile,
+            updatedAt: nowIso
+          };
+          await storageVault.saveProfile(finalProfile);
+          if (auth.currentUser) {
+            saveUserProfileToFirestore(
+              auth.currentUser.uid,
+              finalProfile,
+              auth.currentUser.email || '',
+              finalProfile.name
+            ).catch(() => {});
+          }
+          return finalProfile;
+        }
       }
-      return data.profile;
-    } catch {
-      const existing = (await storageVault.getProfile()) || DEFAULT_USER_PROFILE;
-      const updated = { ...existing, ...profile };
-      await storageVault.saveProfile(updated);
-      return updated;
+    } catch (netErr) {
+      console.warn('[API] Backend profile update notice (local/cloud vault preserved):', netErr);
     }
+
+    return merged;
   },
 
   async getExercises(): Promise<Exercise[]> {

@@ -7,7 +7,7 @@ import {
   Exercise,
   MuscleId
 } from '../../types';
-import { EXERCISES_MAP } from '../../lib/exerciseDatabase';
+import { EXERCISES_MAP, isBodyweightExercise } from '../../lib/exerciseDatabase';
 import {
   calculateProgressiveOverload,
   MUSCLE_CATALOG
@@ -20,6 +20,8 @@ import {
   computeCurrentElapsedSeconds,
   toDateTimeLocal
 } from '../../lib/activeWorkoutStorage';
+import { checkActiveSetPR } from '../../lib/prMath';
+import { nativeHaptics } from '../../lib/nativeBridge';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import {
@@ -37,7 +39,8 @@ import {
   Dumbbell,
   Play,
   Pause,
-  Minimize2
+  Minimize2,
+  Trophy
 } from 'lucide-react';
 
 interface ActiveWorkoutProps {
@@ -325,6 +328,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         restEndTimestampRef.current = null;
         setRestCompletedNotice(true);
         playTimerChime();
+        nativeHaptics.heavy();
         try {
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             navigator.vibrate([150, 100, 250]);
@@ -450,6 +454,8 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
 
   // Exercise Management
   const handleAddExercise = (selected: Exercise) => {
+    const isBW = selected.equipment === 'bodyweight' || isBodyweightExercise(selected.id, selected.name, selected.equipment);
+
     if (substitutingExerciseIndex !== null) {
       // Substitute existing exercise
       setExercises(prev => {
@@ -457,41 +463,52 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         updated[substitutingExerciseIndex] = {
           ...updated[substitutingExerciseIndex],
           exerciseId: selected.id,
-          exerciseName: selected.name
+          exerciseName: selected.name,
+          isBodyweight: isBW,
+          sets: (updated[substitutingExerciseIndex].sets || []).map(s => ({
+            ...s,
+            isBodyweight: isBW,
+            weightKg: isBW ? 0 : (s.weightKg || 0),
+            reps: s.reps || 0
+          }))
         };
         return updated;
       });
       setSubstitutingExerciseIndex(null);
     } else {
-      // Add new exercise
+      // Add new exercise - leave weightKg and reps empty (0) for user to input
       const newEx: WorkoutExercise = {
         id: `we_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         exerciseId: selected.id,
         exerciseName: selected.name,
         targetRestSeconds: 90,
+        isBodyweight: isBW,
         sets: [
           {
             id: `s_${Date.now()}_1`,
             setNumber: 1,
             type: 'normal',
-            weightKg: 20,
-            reps: 10,
+            weightKg: 0,
+            reps: 0,
+            isBodyweight: isBW,
             completed: false
           },
           {
             id: `s_${Date.now()}_2`,
             setNumber: 2,
             type: 'normal',
-            weightKg: 20,
-            reps: 10,
+            weightKg: 0,
+            reps: 0,
+            isBodyweight: isBW,
             completed: false
           },
           {
             id: `s_${Date.now()}_3`,
             setNumber: 3,
             type: 'normal',
-            weightKg: 20,
-            reps: 10,
+            weightKg: 0,
+            reps: 0,
+            isBodyweight: isBW,
             completed: false
           }
         ]
@@ -502,7 +519,19 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   };
 
   const handleRemoveExercise = (index: number) => {
-    setExercises(prev => prev.filter((_, i) => i !== index));
+    setExercises(prev => {
+      const remaining = prev.filter((_, i) => i !== index);
+      const totalRemainingSets = remaining.reduce(
+        (sum, e) => sum + (Array.isArray(e.sets) ? e.sets.length : 0),
+        0
+      );
+      if (totalRemainingSets === 0 || remaining.length === 0) {
+        clearActiveWorkoutSession();
+        onCancelWorkout();
+        return [];
+      }
+      return remaining;
+    });
   };
 
   const handleAddSet = (exerciseIndex: number) => {
@@ -514,15 +543,70 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
       const currentSets = updated[exerciseIndex].sets;
       const lastSet = currentSets[currentSets.length - 1];
       const newSetNumber = currentSets.length + 1;
+      const def = EXERCISES_MAP[updated[exerciseIndex].exerciseId];
+      const isBWCompatible = isBodyweightExercise(updated[exerciseIndex].exerciseId, updated[exerciseIndex].exerciseName, def?.equipment);
+      const isBW = isBWCompatible ? (updated[exerciseIndex].isBodyweight ?? true) : false;
+      const lastSetIsBW = lastSet ? (lastSet.isBodyweight ?? isBW) : isBW;
 
       currentSets.push({
         id: `s_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         setNumber: newSetNumber,
         type: 'normal',
-        weightKg: lastSet ? lastSet.weightKg : 20,
-        reps: lastSet ? lastSet.reps : 10,
+        isBodyweight: isBW ? lastSetIsBW : false,
+        weightKg: 0,
+        reps: 0,
         completed: false
       });
+      nativeHaptics.light();
+      return updated;
+    });
+  };
+
+  const handleToggleExerciseBodyweight = (exerciseIndex: number) => {
+    setExercises(prev => {
+      const updated = [...prev];
+      const target = updated[exerciseIndex];
+      const def = EXERCISES_MAP[target.exerciseId];
+      const isBWCompatible = isBodyweightExercise(target.exerciseId, target.exerciseName, def?.equipment);
+      if (!isBWCompatible) return prev;
+
+      const currentIsBW = target.isBodyweight ?? true;
+      const nextIsBW = !currentIsBW;
+
+      updated[exerciseIndex] = {
+        ...target,
+        isBodyweight: nextIsBW,
+        sets: (target.sets || []).map(s => ({
+          ...s,
+          isBodyweight: nextIsBW,
+          weightKg: nextIsBW ? 0 : (s.weightKg || 0)
+        }))
+      };
+      return updated;
+    });
+  };
+
+  const handleUpdateSetMultiple = (
+    exerciseIndex: number,
+    setIndex: number,
+    updates: Partial<WorkoutSet>
+  ) => {
+    setExercises(prev => {
+      const updated = [...prev];
+      const currentSet = { ...updated[exerciseIndex].sets[setIndex], ...updates };
+
+      if (updates.completed === true) {
+        currentSet.completedAt = new Date().toISOString();
+        const targetRest = updated[exerciseIndex].targetRestSeconds || 90;
+        startRestTimer(targetRest);
+        if (currentSet.isPR) {
+          nativeHaptics.success();
+        } else {
+          nativeHaptics.medium();
+        }
+      }
+
+      updated[exerciseIndex].sets[setIndex] = currentSet;
       return updated;
     });
   };
@@ -530,11 +614,34 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
   const handleRemoveSet = (exerciseIndex: number, setIndex: number) => {
     setExercises(prev => {
       const updated = [...prev];
-      const curr = Array.isArray(updated[exerciseIndex].sets) ? updated[exerciseIndex].sets : [];
-      updated[exerciseIndex].sets = curr
+      const curr = Array.isArray(updated[exerciseIndex]?.sets) ? updated[exerciseIndex].sets : [];
+      const filteredSets = curr
         .filter((_, i) => i !== setIndex)
         .map((s, idx) => ({ ...s, setNumber: idx + 1 }));
-      return updated;
+
+      updated[exerciseIndex] = {
+        ...updated[exerciseIndex],
+        sets: filteredSets
+      };
+
+      // Filter out exercises that have no sets remaining
+      const remainingExercises = updated.filter(
+        e => Array.isArray(e.sets) && e.sets.length > 0
+      );
+
+      const totalRemainingSets = remainingExercises.reduce(
+        (sum, e) => sum + (e.sets?.length || 0),
+        0
+      );
+
+      // If all sets are deleted across the workout, delete/discard the whole workout
+      if (totalRemainingSets === 0) {
+        clearActiveWorkoutSession();
+        onCancelWorkout();
+        return [];
+      }
+
+      return remainingExercises;
     });
   };
 
@@ -563,6 +670,11 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         currentSet.completedAt = new Date().toISOString();
         const targetRest = updated[exerciseIndex].targetRestSeconds || 90;
         startRestTimer(targetRest);
+        if (currentSet.isPR) {
+          nativeHaptics.success();
+        } else {
+          nativeHaptics.medium();
+        }
       }
 
       updated[exerciseIndex].sets[setIndex] = currentSet;
@@ -598,11 +710,48 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
     };
   }, [exercises]);
 
+  // Compute live PR count for the current session
+  const totalSessionPRs = useMemo(() => {
+    let count = 0;
+    exercises.forEach(ex => {
+      const setsArr = Array.isArray(ex?.sets) ? ex.sets : [];
+      setsArr.forEach((s, sIdx) => {
+        if (s && s.completed) {
+          const prior = setsArr.slice(0, sIdx).filter(ps => ps && ps.completed);
+          const pr = checkActiveSetPR(s, ex.exerciseId, ex.exerciseName, previousWorkouts, prior);
+          if (pr.isPR) count++;
+        }
+      });
+    });
+    return count;
+  }, [exercises, previousWorkouts]);
+
   // Finish Workout
   const handleCompleteWorkout = () => {
+    nativeHaptics.success();
     const chosenStartDate = new Date(workoutDateTime);
     const durationSeconds = Math.max(60, elapsedSeconds);
     const completedDate = new Date(chosenStartDate.getTime() + durationSeconds * 1000);
+
+    const finalExercises = exercises.map(ex => {
+      const sets = Array.isArray(ex.sets) ? ex.sets : [];
+      return {
+        ...ex,
+        sets: sets.map((s, sIdx) => {
+          if (!s || !s.completed) return s;
+          const prior = sets.slice(0, sIdx).filter(ps => ps && ps.completed);
+          const pr = checkActiveSetPR(s, ex.exerciseId, ex.exerciseName, previousWorkouts, prior);
+          if (pr.isPR) {
+            return {
+              ...s,
+              isPR: true,
+              prType: pr.prType
+            };
+          }
+          return s;
+        })
+      };
+    });
 
     const finalWorkout: Workout = {
       id: workoutIdRef.current,
@@ -614,7 +763,8 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
       totalVolumeKg: stats.volume,
       totalSets: stats.completedSets,
       musclesTrained: stats.targetedMuscles,
-      exercises: exercises
+      exercises: finalExercises,
+      prCount: totalSessionPRs
     };
 
     try {
@@ -819,7 +969,7 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
       {/* Main Exercises Workout Arena */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
         {/* Workout Volume & Set Ticker Bar */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3 p-3 sm:p-3.5 rounded-2xl bg-slate-800/50 border border-slate-800 text-center">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 p-3 sm:p-3.5 rounded-2xl bg-slate-800/50 border border-slate-800 text-center transition-all">
           <div>
             <span className="text-[10px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider">Volume</span>
             <p className="text-sm sm:text-base font-bold text-white">{stats.volume.toLocaleString()} <span className="text-[10px] sm:text-xs text-slate-400">kg</span></p>
@@ -855,10 +1005,12 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
             </span>
           </div>
           <button
+            type="button"
             onClick={() => setShowDatePickerModal(true)}
-            className="text-blue-400 hover:text-blue-300 font-semibold underline text-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-500/50 font-semibold text-xs transition-all shadow-xs active:scale-95 cursor-pointer shrink-0"
           >
-            Change Date
+            <Calendar className="w-3.5 h-3.5 text-blue-400" />
+            <span>Change Date</span>
           </button>
         </div>
 
@@ -880,6 +1032,8 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         {/* Exercises List */}
         {exercises.map((ex, exIdx) => {
           const def = EXERCISES_MAP[ex.exerciseId];
+          const isBWCompatible = isBodyweightExercise(ex.exerciseId, ex.exerciseName, def?.equipment);
+          const isBW = isBWCompatible ? (ex.isBodyweight ?? true) : false;
           const prev = getPreviousPerformance(ex.exerciseId);
           const prevSets = Array.isArray(prev?.sets) ? prev.sets : [];
           const overloadAdvice = prev && prevSets.length > 0
@@ -905,7 +1059,26 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                     <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-slate-400 mt-0.5">
                       <span className="capitalize">{def?.category || 'Strength'}</span>
                       <span>•</span>
-                      <span className="capitalize">{def?.equipment ? def.equipment.replace(/_/g, ' ') : 'Barbell'}</span>
+                      <span className="capitalize">{def?.equipment ? def.equipment.replace(/_/g, ' ') : (isBW ? 'Bodyweight' : 'Barbell')}</span>
+                      {isBWCompatible && (
+                        <>
+                          <span>•</span>
+                          {/* Bodyweight option toggle button - only for bodyweight compatible exercises */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleExerciseBodyweight(exIdx)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-[11px] transition-all border ${
+                              isBW
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                                : 'bg-slate-900/60 text-slate-400 border-slate-700/60 hover:text-slate-200 hover:bg-slate-800'
+                            }`}
+                            title={isBW ? "Bodyweight mode active (BW / added weight). Click to switch to external weight." : "Switch exercise to Bodyweight (BW)"}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${isBW ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                            {isBW ? 'Bodyweight (BW)' : 'Bodyweight'}
+                          </button>
+                        </>
+                      )}
                       <span>•</span>
                       <div className="inline-flex items-center gap-1 bg-slate-900/60 border border-slate-700/60 rounded px-1.5 py-0.5 text-amber-400">
                         <RotateCcw className="w-3 h-3 text-amber-400/90 shrink-0" />
@@ -965,13 +1138,19 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-slate-400">Previous:</span>
                     <span className="font-mono text-slate-200">
-                      {prevSets.map(s => `${s.weightKg}kg×${s.reps}`).join(' | ')}
+                      {prevSets.map(s => {
+                        const isBWSet = isBW && (s.isBodyweight || s.weightKg === 0);
+                        if (isBWSet) {
+                          return s.weightKg > 0 ? `BW+${s.weightKg}kg×${s.reps}` : `BW×${s.reps}`;
+                        }
+                        return `${s.weightKg}kg×${s.reps}`;
+                      }).join(' | ')}
                     </span>
                   </div>
                   {overloadAdvice && (
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-900/50 border border-blue-500/30 text-blue-300 font-semibold text-[11px]">
                       <TrendingUp className="w-3 h-3 text-blue-400 shrink-0" />
-                      <span>{overloadAdvice.badge}: {overloadAdvice.recommendedWeightKg}kg × {overloadAdvice.recommendedReps}</span>
+                      <span>{overloadAdvice.badge}: {isBW && overloadAdvice.recommendedWeightKg === 0 ? 'BW' : `${overloadAdvice.recommendedWeightKg}kg`} × {overloadAdvice.recommendedReps}</span>
                     </div>
                   )}
                 </div>
@@ -984,7 +1163,9 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                     <tr className="text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-700/40 text-[10px] sm:text-xs">
                       <th className="py-2 px-1.5 sm:px-2 w-8 sm:w-10">Set</th>
                       <th className="py-2 px-1.5 sm:px-2 w-20 sm:w-28">Type</th>
-                      <th className="py-2 px-1.5 sm:px-2 min-w-[75px]">Weight (kg)</th>
+                      <th className="py-2 px-1.5 sm:px-2 min-w-[105px] sm:min-w-[125px]">
+                        {isBW ? 'Weight (BW / +kg)' : 'Weight (kg)'}
+                      </th>
                       <th className="py-2 px-1.5 sm:px-2 min-w-[65px]">Reps</th>
                       <th className="py-2 px-1.5 sm:px-2 text-center w-12">Done</th>
                       <th className="py-2 px-1 w-6"></th>
@@ -994,6 +1175,12 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                     {(Array.isArray(ex.sets) ? ex.sets : []).map((set, setIdx) => {
                       const prevSets = Array.isArray(prev?.sets) ? prev.sets : [];
                       const prevSet = prevSets[setIdx];
+                      const setBW = isBW ? (set.isBodyweight ?? true) : false;
+                      const priorSetsCompleted = (Array.isArray(ex.sets) ? ex.sets.slice(0, setIdx) : []).filter(ps => ps && ps.completed);
+                      const setPRInfo = set.completed
+                        ? checkActiveSetPR(set, ex.exerciseId, ex.exerciseName, previousWorkouts, priorSetsCompleted)
+                        : { isPR: false };
+
                       return (
                         <tr
                           key={set.id || setIdx}
@@ -1002,7 +1189,18 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                           }`}
                         >
                           <td className="py-2 px-1.5 sm:px-2 font-bold text-slate-300 text-xs">
-                            {set.setNumber}
+                            <div className="flex items-center gap-1">
+                              <span>{set.setNumber}</span>
+                              {setPRInfo.isPR && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase tracking-wider animate-pulse shadow-2xs"
+                                  title={setPRInfo.detail || (setPRInfo.prType === 'weight' ? 'Weight PR' : 'Rep PR')}
+                                >
+                                  <Trophy className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                                  PR
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           <td className="py-2 px-1.5 sm:px-2">
@@ -1019,24 +1217,93 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                           </td>
 
                           <td className="py-2 px-1.5 sm:px-2">
-                            <div className="relative">
-                              <input
-                                type="number"
-                                step="0.5"
-                                value={set.weightKg || ''}
-                                onChange={e =>
-                                  handleUpdateSet(
-                                    exIdx,
-                                    setIdx,
-                                    'weightKg',
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                placeholder={prevSet ? `${prevSet.weightKg}` : 'kg'}
-                                className={`w-full px-2 py-1 sm:py-1.5 rounded-lg font-mono font-bold text-xs sm:text-sm bg-slate-900 border text-white focus:outline-hidden focus:ring-1 sm:focus:ring-2 focus:ring-blue-500 ${
-                                  set.completed ? 'border-emerald-700' : 'border-slate-700'
-                                }`}
-                              />
+                            <div className="relative flex items-center gap-1">
+                              <div className="relative flex-1 min-w-[65px]">
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  min="0"
+                                  value={
+                                    set.weightKg === 0 || !set.weightKg
+                                      ? ''
+                                      : set.weightKg
+                                  }
+                                  onFocus={e => e.target.select()}
+                                  onChange={e => {
+                                    const raw = e.target.value;
+                                    if (raw === '') {
+                                      handleUpdateSet(
+                                        exIdx,
+                                        setIdx,
+                                        'weightKg',
+                                        0
+                                      );
+                                      return;
+                                    }
+                                    const cleaned = raw.replace(/^0+(?=\d)/, '');
+                                    const val = parseFloat(cleaned);
+                                    handleUpdateSet(
+                                      exIdx,
+                                      setIdx,
+                                      'weightKg',
+                                      isNaN(val) ? 0 : val
+                                    );
+                                  }}
+                                  placeholder={
+                                    setBW
+                                      ? 'BW'
+                                      : (prevSet && prevSet.weightKg > 0 ? `${prevSet.weightKg}` : 'kg')
+                                  }
+                                  className={`w-full ${isBW ? 'pl-2 pr-7' : 'px-2'} py-1 sm:py-1.5 rounded-lg font-mono font-bold text-xs sm:text-sm bg-slate-900 border text-white focus:outline-hidden focus:ring-1 sm:focus:ring-2 focus:ring-blue-500 ${
+                                    set.completed ? 'border-emerald-700' : 'border-slate-700'
+                                  } ${setBW && (set.weightKg === 0 || !set.weightKg) ? 'placeholder:text-emerald-400 placeholder:font-bold' : ''}`}
+                                />
+                                {setBW && (set.weightKg === 0 || !set.weightKg) && (
+                                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-emerald-400 uppercase tracking-wider">
+                                    BW
+                                  </span>
+                                )}
+                                {setBW && (set.weightKg ?? 0) > 0 && (
+                                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-blue-400 uppercase tracking-wider">
+                                    +KG
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Quick Bodyweight (BW) selector button per set - ONLY if exercise is bodyweight-compatible */}
+                              {isBW && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const currentlyBW = setBW;
+                                    if (!currentlyBW || (set.weightKg ?? 0) > 0) {
+                                      handleUpdateSetMultiple(exIdx, setIdx, {
+                                        isBodyweight: true,
+                                        weightKg: 0
+                                      });
+                                    } else {
+                                      handleUpdateSetMultiple(exIdx, setIdx, {
+                                        isBodyweight: false,
+                                        weightKg: prevSet?.weightKg && prevSet.weightKg > 0 ? prevSet.weightKg : 20
+                                      });
+                                    }
+                                  }}
+                                  className={`px-1.5 py-1 rounded text-[10px] font-bold transition-all border shrink-0 ${
+                                    setBW && (set.weightKg === 0 || !set.weightKg)
+                                      ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50 shadow-xs'
+                                      : setBW && (set.weightKg ?? 0) > 0
+                                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-emerald-500/20 hover:text-emerald-300'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200 hover:bg-slate-700'
+                                  }`}
+                                  title={
+                                    setBW && (set.weightKg === 0 || !set.weightKg)
+                                      ? 'Bodyweight set (0kg added). Click to switch to external weight.'
+                                      : 'Click to select Bodyweight (BW)'
+                                  }
+                                >
+                                  BW
+                                </button>
+                              )}
                             </div>
                           </td>
 
@@ -1044,16 +1311,29 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
                             <input
                               type="number"
                               min="1"
-                              value={set.reps || ''}
-                              onChange={e =>
+                              value={set.reps === 0 || !set.reps ? '' : set.reps}
+                              onFocus={e => e.target.select()}
+                              onChange={e => {
+                                const raw = e.target.value;
+                                if (raw === '') {
+                                  handleUpdateSet(
+                                    exIdx,
+                                    setIdx,
+                                    'reps',
+                                    0
+                                  );
+                                  return;
+                                }
+                                const cleaned = raw.replace(/^0+(?=\d)/, '');
+                                const val = parseInt(cleaned, 10);
                                 handleUpdateSet(
                                   exIdx,
                                   setIdx,
                                   'reps',
-                                  parseInt(e.target.value) || 0
-                                )
-                              }
-                              placeholder={prevSet ? `${prevSet.reps}` : 'reps'}
+                                  isNaN(val) ? 0 : val
+                                );
+                              }}
+                              placeholder={prevSet && prevSet.reps > 0 ? `${prevSet.reps}` : 'reps'}
                               className={`w-full px-2 py-1 sm:py-1.5 rounded-lg font-mono font-bold text-xs sm:text-sm bg-slate-900 border text-white focus:outline-hidden focus:ring-1 sm:focus:ring-2 focus:ring-blue-500 ${
                                 set.completed ? 'border-emerald-700' : 'border-slate-700'
                               }`}
@@ -1132,13 +1412,14 @@ export const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({
         </div>
 
         {/* Cancel / Discard */}
-        <div className="text-center pt-4">
+        <div className="flex justify-center pt-6 pb-2">
           <button
             type="button"
             onClick={() => setShowDiscardConfirmModal(true)}
-            className="text-xs text-rose-400 hover:text-rose-300 underline"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-500/50 text-xs font-semibold transition-all shadow-xs active:scale-95 cursor-pointer"
           >
-            Cancel and Discard Workout
+            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+            <span>Cancel and Discard Workout</span>
           </button>
         </div>
       </main>

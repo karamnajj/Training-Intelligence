@@ -1,6 +1,6 @@
 import React from 'react';
 import { MuscleId, MuscleExposureData } from '../../types';
-import { MUSCLE_CATALOG, FRESHNESS_COLORS, getMuscleBroName, isArmMuscle } from '../../lib/muscleMath';
+import { MUSCLE_CATALOG, FRESHNESS_COLORS, getMuscleBroName, isArmMuscle, formatTimeSinceTraining } from '../../lib/muscleMath';
 import { X, Calendar, Activity, Zap, ShieldAlert, Award, ArrowRight, Clock } from 'lucide-react';
 
 interface MuscleDetailModalProps {
@@ -79,11 +79,7 @@ export const MuscleDetailModal: React.FC<MuscleDetailModalProps> = ({
                 <Calendar className="w-3.5 h-3.5" /> Last Trained
               </span>
               <p className="mt-1 text-base font-bold text-slate-900 dark:text-white">
-                {muscleData.daysSinceTraining === null
-                  ? 'Never'
-                  : Math.floor(muscleData.daysSinceTraining) === 0
-                  ? 'Today'
-                  : `${Math.floor(muscleData.daysSinceTraining)}d ago`}
+                {formatTimeSinceTraining(muscleData.daysSinceTraining, muscleData.lastTrainedAt, new Date(), false)}
               </p>
             </div>
 

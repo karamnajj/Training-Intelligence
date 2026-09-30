@@ -12,7 +12,7 @@ import {
   MuscleId,
   AIWorkoutPlan
 } from './src/types';
-import { EXERCISE_DATABASE, EXERCISES_MAP } from './src/lib/exerciseDatabase';
+import { EXERCISE_DATABASE, EXERCISES_MAP, isBodyweightExercise } from './src/lib/exerciseDatabase';
 import {
   DEFAULT_USER_PROFILE,
   WORKOUT_TEMPLATES,
@@ -30,7 +30,8 @@ import {
 } from './src/lib/muscleMath';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const getOwnerEmail = (): string => (process.env.OWNER_EMAIL || '').toLowerCase().trim();
 
 app.use(express.json());
 
@@ -94,7 +95,7 @@ function isGenuineWorkout(w: any): boolean {
   return true;
 }
 
-// Format athlete names into clean, capitalized real names (e.g. "karamnajj79@gmail.com" -> "Karam")
+// Format athlete names into clean, capitalized real names
 function formatAthleteName(rawName?: string | null, email?: string | null): string {
   const cleanEmail = (email || '').trim().toLowerCase();
   let candidate = (rawName || '').trim();
@@ -107,10 +108,6 @@ function formatAthleteName(rawName?: string | null, email?: string | null): stri
     candidate.toLowerCase() !== 'user' &&
     candidate.toLowerCase() !== 'guest'
   ) {
-    if (candidate.toLowerCase() === 'karamnajj79' || candidate.toLowerCase() === 'karamnajj') {
-      return 'Karam';
-    }
-
     const words = candidate.split(/\s+/).filter(Boolean);
     if (words.length > 0) {
       return words
@@ -129,11 +126,6 @@ function formatAthleteName(rawName?: string | null, email?: string | null): stri
   }
 
   if (handle) {
-    const cleanHandle = handle.toLowerCase();
-    if (cleanHandle === 'karamnajj79' || cleanHandle === 'karamnajj' || cleanEmail === 'karamnajj79@gmail.com') {
-      return 'Karam';
-    }
-
     let stripped = handle.replace(/^[0-9]+/, '').replace(/[0-9]+$/, '');
     if (/[._+-]/.test(stripped)) {
       const parts = stripped.split(/[._+-]+/).filter(Boolean);
@@ -254,13 +246,14 @@ function seedPrimaryUserAccounts() {
     }
   }
 
-  // 2. Ensure Karam (owner) account exists and is properly secured
+  // 2. Ensure primary athlete account exists and is properly secured
+  const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase().trim();
   const karamId = 'usr_karam_owner';
   let karamAccount = userAccounts.get(karamId);
-  if (!karamAccount) {
+  if (!karamAccount && ownerEmail) {
     // Search by email
     for (const acc of userAccounts.values()) {
-      if (acc.email && acc.email.toLowerCase() === 'karamnajj79@gmail.com') {
+      if (acc.email && acc.email.toLowerCase() === ownerEmail) {
         karamAccount = acc;
         break;
       }
@@ -268,8 +261,11 @@ function seedPrimaryUserAccounts() {
   }
 
   if (karamAccount) {
-    karamAccount.username = 'Karam';
-    if (karamAccount.profile) karamAccount.profile.name = 'Karam';
+    karamAccount.username = karamAccount.username || 'Athlete';
+    if (karamAccount.profile) karamAccount.profile.name = karamAccount.profile.name || karamAccount.username;
+    if (ownerEmail) {
+      karamAccount.email = ownerEmail;
+    }
     if (
       karamAccount.password === 'athlete_auth_token_secured' ||
       karamAccount.passwordHash === '4eda0d34acbf0a5fa8aedbe606cf36ef0f29de2ec57f6ced711bd6cb62348ca08ba6ad8dad66ca34718dbeb60e343b8911ca479ebe94567639acee6a2421c85d'
@@ -284,7 +280,9 @@ function seedPrimaryUserAccounts() {
       w.userId = karamAccount.id;
     }
     userAccounts.set('usr_karam_owner', karamAccount);
-    userAccounts.set('karamnajj79@gmail.com', karamAccount);
+    if (karamAccount.email) {
+      userAccounts.set(karamAccount.email.toLowerCase(), karamAccount);
+    }
   }
 
   // Purge any lingering legacy owner references
@@ -463,11 +461,19 @@ function saveDatabaseToDisk() {
       }
     }
 
+    // Deduplicate user accounts by account.id so alias entries don't duplicate on disk
+    const uniqueUsersMap = new Map<string, UserAccount>();
+    for (const u of userAccounts.values()) {
+      if (u && u.id) {
+        uniqueUsersMap.set(u.id, u);
+      }
+    }
+
     const data = {
       version: '1.1.0',
       lastSavedAt: new Date().toISOString(),
-      usersCount: userAccounts.size,
-      users: Array.from(userAccounts.values()),
+      usersCount: uniqueUsersMap.size,
+      users: Array.from(uniqueUsersMap.values()),
       sessions: Array.from(activeSessions.entries()).map(([token, s]) => ({
         token,
         userId: s.userId,
@@ -686,10 +692,22 @@ function getUserFromRequest(req: express.Request): UserAccount | null {
     }
   }
 
-  // 8. Karam / Owner device resolution
-  if (token === 'usr_karam_owner' || headerUserId === 'usr_karam_owner' || headerUserEmail === 'karamnajj79@gmail.com') {
+  // 8. Primary Athlete / Owner device resolution
+  const envOwnerEmail = (process.env.OWNER_EMAIL || '').toLowerCase().trim();
+  if (token === 'usr_karam_owner' || headerUserId === 'usr_karam_owner' || (envOwnerEmail && headerUserEmail === envOwnerEmail)) {
     const karam = userAccounts.get('usr_karam_owner');
     if (karam) return karam;
+  }
+
+  // 9. Resilient failover: if valid candidate ID or email provided, auto-restore or create account container
+  const candidateId = headerUserId || token;
+  if (candidateId && candidateId !== 'null' && candidateId !== 'undefined' && !candidateId.startsWith('Bearer')) {
+    return createOrRestoreUserAccount(candidateId, headerUserEmail);
+  }
+
+  if (headerUserEmail) {
+    const derivedId = `usr_${headerUserEmail.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    return createOrRestoreUserAccount(derivedId, headerUserEmail);
   }
 
   return null;
@@ -716,7 +734,7 @@ function rebuildPersonalRecordsForUser(user: UserAccount) {
           : (typeof ex?.sets === 'number'
             ? Array.from({ length: ex.sets }).map(() => ({ completed: true, weightKg: (ex as any).suggestedWeightKg || (ex as any).weightKg || 0, reps: (ex as any).repMin || (ex as any).reps || 0 }))
             : []));
-      const validSets = setsArr.filter(s => s && s.completed && (Number(s.weightKg) || 0) > 0 && (Number(s.reps) || 0) > 0);
+      const validSets = setsArr.filter(s => s && s.completed && (Number(s.reps) || 0) > 0 && ((Number(s.weightKg) || 0) > 0 || s.isBodyweight || isBodyweightExercise(ex.exerciseId, ex.exerciseName) || Number(s.weightKg) === 0));
       if (validSets.length === 0) continue;
 
       for (const s of validSets) {
@@ -736,15 +754,21 @@ function rebuildPersonalRecordsForUser(user: UserAccount) {
             workoutId: w.id
           });
         } else {
-          // If this set achieves a higher estimated 1RM, update to this specific set's data
-          if (e1rm > existing.estimated1RMKg) {
-            existing.estimated1RMKg = e1rm;
+          // If weight is heavier
+          if (weight > existing.maxWeightKg) {
             existing.maxWeightKg = weight;
             existing.maxReps = reps;
+            existing.estimated1RMKg = e1rm;
             existing.achievedAt = w.completedAt || w.startedAt || new Date().toISOString();
             existing.workoutId = w.id;
-          } else if (weight > existing.maxWeightKg) {
-            // Absolute heavier single set
+          } else if (weight === existing.maxWeightKg && reps > existing.maxReps) {
+            // Same weight (e.g. bodyweight or same kg) but more reps achieved!
+            existing.maxReps = reps;
+            existing.estimated1RMKg = e1rm;
+            existing.achievedAt = w.completedAt || w.startedAt || new Date().toISOString();
+            existing.workoutId = w.id;
+          } else if (e1rm > existing.estimated1RMKg) {
+            existing.estimated1RMKg = e1rm;
             existing.maxWeightKg = weight;
             existing.maxReps = reps;
             existing.achievedAt = w.completedAt || w.startedAt || new Date().toISOString();
@@ -779,7 +803,25 @@ function getGeminiClient(): GoogleGenAI | null {
   return genAI;
 }
 
-// Resilient Gemini multi-model fallback handler to survive temporary 503 high demand or rate limits
+// Model exhaustion & circuit breaker tracking (e.g. when quota is exceeded on a specific model)
+const modelCooldowns = new Map<string, number>();
+
+function isModelCoolingDown(model: string): boolean {
+  const expiry = modelCooldowns.get(model);
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    modelCooldowns.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function markModelExhausted(model: string, durationMs: number = 30 * 60 * 1000) {
+  modelCooldowns.set(model, Date.now() + durationMs);
+  console.warn(`[Gemini CircuitBreaker] Model ${model} marked cooling down until ${new Date(Date.now() + durationMs).toLocaleTimeString()} due to quota or overload.`);
+}
+
+// Resilient Gemini multi-model fallback handler to survive temporary 503 high demand or quota limits
 async function generateGeminiContentWithFallback(
   ai: GoogleGenAI,
   params: {
@@ -788,27 +830,54 @@ async function generateGeminiContentWithFallback(
     primaryModel?: string;
   }
 ) {
-  const modelsToTry = [
-    params.primaryModel || 'gemini-2.5-flash',
-    'gemini-3.7-flash',
+  const requestedPrimary = params.primaryModel || 'gemini-2.5-flash';
+  const allCandidates = [
+    requestedPrimary,
+    'gemini-2.5-flash',
     'gemini-flash-latest',
-    'gemini-3.1-flash-lite'
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-pro-preview',
+    'gemini-3.8-flash'
   ];
 
-  const uniqueModels = Array.from(new Set(modelsToTry));
+  // Prioritize unique models, pushing cooling down models to the end
+  const uniqueModels = Array.from(new Set(allCandidates));
+  const activeModels = uniqueModels.filter(m => !isModelCoolingDown(m));
+  const coolingModels = uniqueModels.filter(m => isModelCoolingDown(m));
+  const orderedModels = activeModels.length > 0 ? [...activeModels, ...coolingModels] : uniqueModels;
+
   let lastError: any = null;
 
-  for (const model of uniqueModels) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: params.contents,
-        config: params.config
-      });
-      return response;
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`Gemini model ${model} unavailable (${err?.status || err?.message || 'high demand'}), attempting resilient fallback...`);
+  for (const model of orderedModels) {
+    // Attempt up to 2 tries per model if encountering transient 503 overloaded errors
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err?.message || err?.status || '');
+        const isQuota = errMsg.includes('resource_exhausted') || errMsg.includes('quota') || errMsg.includes('limit: 25000000') || err?.status === 429;
+        const isOverloaded = errMsg.includes('overloaded') || errMsg.includes('503') || errMsg.includes('high demand') || err?.status === 503;
+
+        if (isQuota) {
+          markModelExhausted(model, 30 * 60 * 1000); // 30 min cooldown for quota exhaustion
+          break; // Don't retry same model if quota is exhausted
+        }
+
+        if (isOverloaded && attempt === 0) {
+          // Brief pause before second try for transient high demand
+          await new Promise(r => setTimeout(r, 600));
+          continue;
+        }
+
+        console.warn(`Gemini model ${model} unavailable (attempt ${attempt + 1}: ${errMsg.slice(0, 100)}), attempting fallback...`);
+        break;
+      }
     }
   }
   throw lastError;
@@ -1267,9 +1336,20 @@ app.post('/api/profile', (req, res) => {
     res.status(401).json({ error: 'Unauthorized. Please sign in.' });
     return;
   }
-  user.profile = { ...user.profile, ...req.body };
-  if (req.body.name) {
-    const formatted = formatAthleteName(req.body.name, user.email);
+  const incoming = req.body || {};
+  user.profile = {
+    ...user.profile,
+    ...incoming,
+    updatedAt: new Date().toISOString()
+  };
+  if (incoming.trainingDaysPerWeek !== undefined) {
+    user.profile.trainingDaysPerWeek = Number(incoming.trainingDaysPerWeek) || 4;
+  }
+  if (incoming.birthday !== undefined) {
+    user.profile.birthday = incoming.birthday;
+  }
+  if (incoming.name) {
+    const formatted = formatAthleteName(incoming.name, user.email);
     user.username = formatted;
     user.profile.name = formatted;
   }
@@ -1675,7 +1755,7 @@ app.post('/api/workouts/sync', (req, res) => {
           user.id === 'usr_karam_owner' ||
           w.userId.startsWith('fb_') ||
           !userAccounts.has(w.userId) ||
-          (user.email && user.email.toLowerCase() === 'karamnajj79@gmail.com') ||
+          (getOwnerEmail() && user.email && user.email.toLowerCase() === getOwnerEmail()) ||
           (userAccounts.get(w.userId)?.email === user.email);
 
         if (isCrossDeviceCompatible) {
@@ -1986,9 +2066,23 @@ app.post('/api/data/sync', (req, res) => {
   }
 
   // Update profile if client has non-empty fields
-  if (profile && typeof profile === 'object' && profile.name) {
-    user.profile = { ...user.profile, ...profile };
-    user.username = profile.name;
+  if (profile && typeof profile === 'object') {
+    user.profile = {
+      ...user.profile,
+      ...profile,
+      updatedAt: new Date().toISOString()
+    };
+    if (profile.trainingDaysPerWeek !== undefined) {
+      user.profile.trainingDaysPerWeek = Number(profile.trainingDaysPerWeek) || 4;
+    }
+    if (profile.birthday !== undefined) {
+      user.profile.birthday = profile.birthday;
+    }
+    if (profile.name) {
+      const formatted = formatAthleteName(profile.name, user.email);
+      user.username = formatted;
+      user.profile.name = formatted;
+    }
   }
 
   rebuildPersonalRecordsForUser(user);
@@ -2059,10 +2153,91 @@ app.post('/api/ai/chat', async (req, res) => {
     const radar = buildTrainingRadar(user.workouts, EXERCISES_MAP);
     const exposures = calculateMuscleExposures(user.workouts, EXERCISES_MAP);
 
-    // Build rich, structured training history context
+    // Calculate athlete biological age from birthday if provided
+    let athleteAge: number | null = null;
+    if (user.profile?.birthday) {
+      const bDate = new Date(user.profile.birthday);
+      if (!isNaN(bDate.getTime())) {
+        const now = new Date();
+        let age = now.getFullYear() - bDate.getFullYear();
+        const m = now.getMonth() - bDate.getMonth();
+        if (m < 0 || (m === 0 && now.getDate() < bDate.getDate())) age--;
+        if (age >= 0 && age <= 120) athleteAge = age;
+      }
+    }
+
+    const lastWorkout = user.workouts[0];
+
+    // Detect PR breakthroughs in the most recent workout
+    const lastWorkoutPRs: Array<{ exercise: string; weightKg: number; reps: number }> = [];
+    if (lastWorkout) {
+      for (const pr of user.personalRecords || []) {
+        if (pr.workoutId === lastWorkout.id) {
+          lastWorkoutPRs.push({
+            exercise: pr.exerciseName,
+            weightKg: pr.maxWeightKg,
+            reps: pr.maxReps
+          });
+        }
+      }
+      if (lastWorkoutPRs.length === 0 && Array.isArray(lastWorkout.exercises)) {
+        for (const ex of lastWorkout.exercises) {
+          const prSets = (ex.sets || []).filter((s: any) => s && s.completed && s.isPR);
+          for (const ps of prSets) {
+            lastWorkoutPRs.push({
+              exercise: ex.exerciseName,
+              weightKg: Number(ps.weightKg) || 0,
+              reps: Number(ps.reps) || 0
+            });
+          }
+        }
+      }
+    }
+
+    // Detect exercises in last workout where weights were noticeably lighter than expected (>= 25% drop)
+    const notablyLighterExercises: Array<{
+      exercise: string;
+      actualWeightKg: number;
+      historicalBestKg: number;
+      percentDrop: number;
+    }> = [];
+
+    if (lastWorkout && Array.isArray(lastWorkout.exercises)) {
+      for (const ex of lastWorkout.exercises) {
+        const histPR = (user.personalRecords || []).find(p => p.exerciseId === ex.exerciseId);
+        if (histPR && histPR.maxWeightKg >= 20 && histPR.workoutId !== lastWorkout.id) {
+          const topWorkingSet = (ex.sets || [])
+            .filter((s: any) => s && s.completed && !s.isBodyweight && s.type !== 'warmup')
+            .reduce((max: any, s: any) => (Number(s.weightKg) || 0) > (Number(max?.weightKg) || 0) ? s : max, null);
+
+          if (topWorkingSet && Number(topWorkingSet.weightKg) > 0) {
+            const actualWeight = Number(topWorkingSet.weightKg);
+            const expectedWeight = histPR.maxWeightKg;
+            const drop = Math.round(((expectedWeight - actualWeight) / expectedWeight) * 100);
+            if (drop >= 25) {
+              notablyLighterExercises.push({
+                exercise: ex.exerciseName,
+                actualWeightKg: actualWeight,
+                historicalBestKg: expectedWeight,
+                percentDrop: drop
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Build rich, structured training history context safely
     const recentWorkoutsSummary = user.workouts.slice(0, 5).map(w => ({
       name: w.name,
-      date: new Date(w.completedAt || w.startedAt).toISOString().slice(0, 10),
+      date: (() => {
+        try {
+          const d = new Date(w.completedAt || w.startedAt);
+          return isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
+        } catch {
+          return new Date().toISOString().slice(0, 10);
+        }
+      })(),
       durationMinutes: Math.round((w.durationSeconds || 0) / 60) || 45,
       totalVolumeKg: w.totalVolumeKg,
       exercises: (w.exercises || []).map(ex => {
@@ -2084,6 +2259,8 @@ app.post('/api/ai/chat', async (req, res) => {
     // Build structured domain context without dumping raw database
     const contextSummary = {
       athleteName: user.username,
+      athleteBirthday: user.profile?.birthday || 'Not specified',
+      athleteBiologicalAge: athleteAge ? `${athleteAge} years old` : 'Not specified',
       userGoal: user.profile.primaryGoal,
       experienceLevel: user.profile.experienceLevel,
       totalLoggedWorkouts: user.workouts.length,
@@ -2092,6 +2269,11 @@ app.post('/api/ai/chat', async (req, res) => {
       pushPullRatio: radar.pushPullRatio,
       upperLowerRatio: radar.upperLowerRatio,
       todaySuggestedFocus: radar.suggestedFocusToday,
+      recentPerformanceSignals: {
+        lastWorkoutName: lastWorkout?.name || null,
+        recentPRsAchieved: lastWorkoutPRs,
+        notablyLighterLifts: notablyLighterExercises
+      },
       highFatigueMuscles: radar.highExposureMuscles.map(m => ({
         name: m.name,
         daysAgo: m.daysSinceTraining,
@@ -2113,25 +2295,47 @@ app.post('/api/ai/chat', async (req, res) => {
     };
 
     const getFallbackReply = () => {
-      const reply = `Based on your live Training Intelligence data, **${user.username}**:\n\n` +
-        `• **Suggested Focus Today**: **${radar.suggestedFocusToday.title}**\n` +
-        `• **Rationale**: ${radar.suggestedFocusToday.rationale}\n\n` +
-        `**Fatigue & Recovery Status**:\n` +
-        (radar.highExposureMuscles.length > 0
-          ? `• **High Exposure (Rest/Protect)**: ${radar.highExposureMuscles.map(m => m.name).join(', ')}\n`
-          : `• No muscle groups currently in extreme fatigue.\n`) +
-        (radar.recoveredMuscles.length > 0
-          ? `• **Ready & Recovered**: ${radar.recoveredMuscles.map(m => m.name).join(', ')}\n`
-          : '') +
-        `\n**Coaching Note**: You can start today's recommended session directly or explore the Workout Generator to build a custom session tailored to your ${user.profile.primaryGoal} goal.`;
+      const lower = (message || '').toLowerCase();
+      let responseText = '';
+
+      if (lower.includes('pr') || lower.includes('record') || lower.includes('personal best') || lower.includes('max')) {
+        if (lastWorkoutPRs.length > 0) {
+          const prList = lastWorkoutPRs.map(p => `• ${p.exercise}: ${p.weightKg} kg × ${p.reps} reps`).join('\n');
+          responseText = `Your recent PRs:\n\n${prList}\n\nSolid progress. Next time you hit these movements, try aiming for 1 more rep or a small 1-2 kg bump.`;
+        } else if (user.personalRecords && user.personalRecords.length > 0) {
+          const topPRs = user.personalRecords.slice(0, 3).map(p => `• ${p.exerciseName}: ${p.maxWeightKg} kg × ${p.maxReps} (Est 1RM: ${p.estimated1RMKg} kg)`).join('\n');
+          responseText = `Your top PRs right now:\n\n${topPRs}\n\nKeep focusing on small, consistent progressive overload on your main lifts.`;
+        } else {
+          responseText = `You don't have any logged PRs yet. Once you complete sets that beat your previous numbers, they'll show up here automatically.`;
+        }
+      } else if (lower.includes('sore') || lower.includes('recover') || lower.includes('fatigue') || lower.includes('rest') || lower.includes('fresh')) {
+        const fatigued = radar.highExposureMuscles.map(m => m.name).join(', ') || 'None';
+        const recovered = radar.recoveredMuscles.map(m => m.name).join(', ') || 'All muscle groups balanced';
+        responseText = `Current recovery state:\n\n• High fatigue / recovering: ${fatigued}\n• Fresh and ready: ${recovered}\n\nIf you train today, hit the fresh groups and give the fatigued muscles another 24-48 hours.`;
+      } else if (lower.includes('last workout') || lower.includes('previous workout') || lower.includes('how did i do') || lower.includes('how was my')) {
+        if (lastWorkout) {
+          const mins = Math.round((lastWorkout.durationSeconds || 0) / 60) || 45;
+          const vol = (lastWorkout.totalVolumeKg || 0).toLocaleString();
+          const exCount = (lastWorkout.exercises || []).length;
+          responseText = `Last workout was ${lastWorkout.name} (${mins} mins, ${vol} kg total volume across ${exCount} exercises). Solid session. Make sure you're getting enough protein and rest to recover.`;
+        } else {
+          responseText = `You haven't logged any completed workouts yet. Once you finish your first session, I'll break down your volume and recovery right here.`;
+        }
+      } else if (lower.includes('today') || lower.includes('train') || lower.includes('workout') || lower.includes('split') || lower.includes('routine')) {
+        const ready = radar.recoveredMuscles.slice(0, 3).map(m => m.name).join(', ') || 'Full Body';
+        responseText = `Hit ${radar.suggestedFocusToday.title} today. Your ${ready} are recovered and ready for work.\n\nLet me know if you want me to generate the full routine or if you have specific exercises in mind.`;
+      } else {
+        const ready = radar.recoveredMuscles.slice(0, 2).map(m => m.name).join(' and ') || 'balanced muscles';
+        responseText = `Your ${ready} are fresh and recovered today. ${radar.suggestedFocusToday.title} is the recommended split based on your recent training.\n\nWhat do you want to hit today?`;
+      }
 
       return {
-        reply,
+        reply: responseText,
         referencedMuscles: radar.suggestedFocusToday.muscles,
         suggestedActions: [
-          'Generate workout for today',
-          'Review my weekly volume',
-          'Which muscles are neglected?'
+          'What should I train today?',
+          'Generate a workout for today',
+          'How was my last workout?'
         ]
       };
     };
@@ -2143,35 +2347,74 @@ app.post('/api/ai/chat', async (req, res) => {
       return;
     }
 
-    const systemInstruction = `You are Training Intelligence, an elite AI Strength & Conditioning Coach and Exercise Scientist.
-You give evidence-based, concise, highly actionable training advice based strictly on the user's structured workout history and recovery state.
+    const systemInstruction = `You are a real, experienced personal strength coach chatting directly with athlete ${user.username}.
+Talk like a knowledgeable human friend or coach texting in real life.
 
-STRICT FORMATTING & COACHING RULES:
-1. Ground your advice in the provided JSON training context. Do NOT hallucinate workout statistics or PR numbers that do not exist.
-2. If data is missing or user has zero logs in an area, explicitly state: "I don't have enough logged data to assess that yet."
-3. Distinguish clearly between FACT (from logged history), INFERENCE (estimated recovery status/heuristics), and RECOMMENDATION.
-4. Keep answers clean, concise, and structured. Use Markdown formatting properly: bold keywords, bullet points with '-', and section headers.
-5. Address the athlete as ${user.username}.
+COACHING VOICE & TONE:
+1. TALK LIKE A REAL HUMAN (NO SCRIPTED OR CORNY FLUFF):
+- Be direct, conversational, and natural.
+- Zero cheesy gym hype, slogans, or cheerleading ("Crush it champ", "Let's get after it", "Keep up the phenomenal work", "Proud of you").
+- Zero robotic corporate or medical jargon ("neuromuscular system consolidation", "optimal hypertrophy stimulus", "supercompensation kinetics", "intelligence session"). Speak in normal gym terms: weights, sets, reps, fatigue, rest, good form, soreness, volume.
+- Zero boilerplate sign-offs or repetitive closing questions ("What would you like to zero in on next?", "How can I assist your fitness journey?"). When you've answered the question, stop.
 
-Current User Training State:
-${JSON.stringify(contextSummary, null, 2)}`;
+2. STRAIGHT TO THE POINT (SHORT & PUNCHY):
+- Answer the user's exact question or message immediately in the very first sentence.
+- Keep answers concise and punchy (1 to 3 short paragraphs or quick bullet points). Never write a long boring essay unless the user explicitly requested a detailed deep-dive.
+- No filler openings ("Great question!", "Certainly!", "I would be happy to help!").
 
-    // Build contents array including previous conversation turns
-    const chatContents: any[] = [];
+3. DEEPLY PERSONALIZED (USE CHAT HISTORY & RECENT CONTEXT):
+- NEVER start messages by congratulating them on a PR or checking on light lifts. Only mention PRs or past numbers if the athlete explicitly asked about them or if it directly and naturally answers their question.
+- Do not repeat the same phrases or templates across conversation turns.
+- Pay close attention to what the athlete told you earlier in this chat (injuries, tiredness, goals, equipment, preferences) and build on it naturally like a real coach who actually listened.
+
+4. 100% PLAIN TEXT ONLY (STRICT ZERO ASTERISKS):
+- Never use asterisks (*) or double asterisks (**). Do not format text in bold or italic markdown.
+- Never write words between asterisks. Write in plain, clean English text.
+- If using lists, use simple bullet dots (•) or dashes (-).
+
+ATHLETE TRAINING CONTEXT:
+- Athlete Name: ${user.username}
+- Goal: ${user.profile?.primaryGoal || 'Strength and hypertrophy'}
+- Biological Age: ${athleteAge ? `${athleteAge} years old` : 'Not specified'}
+- Recommended Split Today: ${radar.suggestedFocusToday.title}
+- Fresh Recovered Muscle Groups: ${radar.recoveredMuscles.slice(0, 4).map(m => m.name).join(', ') || 'All balanced'}
+- Fatigued / Resting Groups: ${radar.highExposureMuscles.slice(0, 3).map(m => m.name).join(', ') || 'None'}
+- Total Workouts Logged: ${user.workouts.length}
+- Last Workout: ${lastWorkout ? `${lastWorkout.name} (${Math.round((lastWorkout.durationSeconds || 0) / 60) || 45} mins)` : 'None yet'}`;
+
+    // Build clean alternating conversation turns for Gemini
+    const sanitizedTurns: Array<{ role: 'user' | 'model'; text: string }> = [];
     if (Array.isArray(conversationHistory)) {
-      for (const turn of conversationHistory.slice(-6)) {
-        if (turn.text && turn.sender) {
-          chatContents.push({
-            role: turn.sender === 'assistant' ? 'model' : 'user',
-            parts: [{ text: turn.text }]
-          });
+      // Keep up to 14 recent turns for deep personalization without token bloating
+      for (const turn of conversationHistory.slice(-14)) {
+        if (turn && turn.text && typeof turn.text === 'string' && turn.text.trim()) {
+          const role = (turn.sender === 'assistant' || turn.sender === 'model') ? 'model' : 'user';
+          sanitizedTurns.push({ role, text: turn.text.trim() });
         }
       }
     }
-    chatContents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
+
+    // Gemini requires multi-turn contents to start with a 'user' turn.
+    // Discard any initial welcome message from the model.
+    while (sanitizedTurns.length > 0 && sanitizedTurns[0].role === 'model') {
+      sanitizedTurns.shift();
+    }
+
+    // Append the latest user query
+    sanitizedTurns.push({ role: 'user', text: message.trim() });
+
+    // Collapse consecutive same-role turns into single turns to maintain valid alternating format
+    const chatContents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+    for (const turn of sanitizedTurns) {
+      if (chatContents.length > 0 && chatContents[chatContents.length - 1].role === turn.role) {
+        chatContents[chatContents.length - 1].parts[0].text += `\n\n${turn.text}`;
+      } else {
+        chatContents.push({
+          role: turn.role,
+          parts: [{ text: turn.text }]
+        });
+      }
+    }
 
     try {
       const response = await generateGeminiContentWithFallback(ai, {
@@ -2183,15 +2426,20 @@ ${JSON.stringify(contextSummary, null, 2)}`;
         primaryModel: 'gemini-2.5-flash'
       });
 
-      const reply = response.text || "Here is my assessment of your current training state.";
+      let reply = response.text || "Here is my assessment of your current training state.";
+      // Clean up all asterisks completely so no bold/italic markdown or text between asterisks ever leaks
+      reply = reply
+        .replace(/\*{1,3}([^*]+?)\*{1,3}/g, '$1')
+        .replace(/\*/g, '')
+        .trim();
 
       res.json({
         reply,
         referencedMuscles: radar.suggestedFocusToday.muscles,
         suggestedActions: [
+          'What should I train today?',
           'Generate a workout for today',
-          'Analyze my bench progression',
-          'How is my push vs pull balance?'
+          'How was my last workout?'
         ]
       });
     } catch (modelErr) {
@@ -2225,7 +2473,6 @@ function buildAlgorithmicWorkout(
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 82.5,
         coachingNote: 'Retract and depress scapulae. Drive through floor.'
       },
       {
@@ -2236,7 +2483,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 28,
         coachingNote: 'Focus on upper clavicular stretch at the bottom.'
       },
       {
@@ -2247,7 +2493,6 @@ function buildAlgorithmicWorkout(
         repMax: 15,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 12.5,
         coachingNote: 'Lead with elbows in scapular plane with controlled negative.'
       },
       {
@@ -2258,7 +2503,6 @@ function buildAlgorithmicWorkout(
         repMax: 12,
         rir: 1,
         restSeconds: 90,
-        suggestedWeightKg: 27.5,
         coachingNote: 'Push down with elbows pinned; works with all handles (rope, straight bar, V-bar).'
       }
     ];
@@ -2272,7 +2516,6 @@ function buildAlgorithmicWorkout(
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 75,
         coachingNote: 'Pull to lower abdomen, hold 1s at top contraction.'
       },
       {
@@ -2283,7 +2526,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 65,
         coachingNote: 'Drive elbows down into back pockets, control return.'
       },
       {
@@ -2294,7 +2536,6 @@ function buildAlgorithmicWorkout(
         repMax: 15,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 22.5,
         coachingNote: 'Rotate thumbs backwards at finish to engage external rotators.'
       },
       {
@@ -2305,7 +2546,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 1,
         restSeconds: 90,
-        suggestedWeightKg: 32.5,
         coachingNote: 'Strict form with full extension at the bottom.'
       }
     ];
@@ -2319,7 +2559,6 @@ function buildAlgorithmicWorkout(
         repMax: 6,
         rir: 2,
         restSeconds: 180,
-        suggestedWeightKg: 105,
         coachingNote: 'Hit parallel depth with knees tracking toes.'
       },
       {
@@ -2330,7 +2569,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 95,
         coachingNote: 'Hinge hips backwards, maximize hamstring stretch.'
       },
       {
@@ -2341,7 +2579,6 @@ function buildAlgorithmicWorkout(
         repMax: 15,
         rir: 1,
         restSeconds: 90,
-        suggestedWeightKg: 55,
         coachingNote: '1-second pause at top lockout to stress rectus femoris.'
       },
       {
@@ -2352,7 +2589,6 @@ function buildAlgorithmicWorkout(
         repMax: 15,
         rir: 1,
         restSeconds: 60,
-        suggestedWeightKg: 70,
         coachingNote: '2-second deep stretch at the bottom of every rep.'
       }
     ];
@@ -2366,7 +2602,6 @@ function buildAlgorithmicWorkout(
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 52.5,
         coachingNote: 'Brace core and glutes, press vertically.'
       },
       {
@@ -2377,7 +2612,6 @@ function buildAlgorithmicWorkout(
         repMax: 15,
         rir: 1,
         restSeconds: 60,
-        suggestedWeightKg: 12.5,
         coachingNote: 'Raise in the scapular plane with smooth control.'
       },
       {
@@ -2388,7 +2622,6 @@ function buildAlgorithmicWorkout(
         repMax: 12,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 14,
         coachingNote: 'Deep stretch on the long head of the bicep.'
       },
       {
@@ -2399,7 +2632,6 @@ function buildAlgorithmicWorkout(
         repMax: 12,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 25,
         coachingNote: 'Emphasize long head triceps stretch behind the head.'
       }
     ];
@@ -2413,7 +2645,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 28,
         coachingNote: 'Full chest stretch, control negative.'
       },
       {
@@ -2424,7 +2655,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 55,
         coachingNote: 'Squeeze mid-back rhomboids together.'
       },
       {
@@ -2435,7 +2665,6 @@ function buildAlgorithmicWorkout(
         repMax: 15,
         rir: 1,
         restSeconds: 60,
-        suggestedWeightKg: 12.5,
         coachingNote: 'Consistent cadence without swinging.'
       },
       {
@@ -2446,7 +2675,6 @@ function buildAlgorithmicWorkout(
         repMax: 12,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 27.5,
         coachingNote: 'Lock out fully at the bottom; works with any handle.'
       }
     ];
@@ -2461,7 +2689,6 @@ function buildAlgorithmicWorkout(
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 95,
         coachingNote: 'Solid brace, descend under control.'
       },
       {
@@ -2472,7 +2699,6 @@ function buildAlgorithmicWorkout(
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 80,
         coachingNote: 'Smooth descent to mid-sternum.'
       },
       {
@@ -2483,7 +2709,6 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 65,
         coachingNote: 'Drive elbows down into torso.'
       },
       {
@@ -2494,17 +2719,16 @@ function buildAlgorithmicWorkout(
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 90,
         coachingNote: 'Pure hip hinge with flat back.'
       }
     ];
   }
 
   return {
-    name: `${targetFocus} — Intelligence Session`,
+    name: `${targetFocus}`,
     targetFocus: targetFocus,
     durationMinutes: targetMinutes,
-    rationale: `Targeted session synthesized from your real-time recovery profile. Focuses on prime movement patterns while protecting fatigued regions.`,
+    rationale: `Session dialed in for your recovery today. Hits primary compound movements with solid working volume while resting fatigued muscles.`,
     warmupTip: warmup,
     exercises
   };
@@ -2535,13 +2759,12 @@ app.post('/api/ai/workout', async (req, res) => {
     }
 
     try {
+      // Concise exercise catalog payload to save prompt tokens and preserve quota
       const availableExercisesList = EXERCISE_DATABASE.map(e => ({
         id: e.id,
         name: e.name,
         category: e.category,
-        pattern: e.movementPattern,
-        equipment: e.equipment,
-        mechanics: e.mechanics
+        equipment: e.equipment
       }));
 
       const prompt = `Create a structured workout plan for:
@@ -2552,8 +2775,8 @@ app.post('/api/ai/workout', async (req, res) => {
 - Current Recovered Groups: ${radar.recoveredMuscles.map((m: any) => m.name).join(', ') || 'All balanced'}
 - Fatigued Groups to Protect: ${radar.highExposureMuscles.map((m: any) => m.name).join(', ') || 'None'}
 
-Available Exercise Catalog to choose from:
-${JSON.stringify(availableExercisesList, null, 2)}
+Available Exercise Catalog:
+${JSON.stringify(availableExercisesList)}
 
 Return ONLY valid JSON adhering strictly to this schema:
 {
@@ -2571,7 +2794,6 @@ Return ONLY valid JSON adhering strictly to this schema:
       "repMax": number,
       "rir": number,
       "restSeconds": number,
-      "suggestedWeightKg": number,
       "coachingNote": "string"
     }
   ]

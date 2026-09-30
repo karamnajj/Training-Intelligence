@@ -7,7 +7,8 @@ import {
   Workout,
   PersonalRecord,
   TrainingRadar,
-  AIWorkoutPlan
+  AIWorkoutPlan,
+  UserProfile
 } from '../types';
 
 export const MUSCLE_CATALOG: Record<MuscleId, MuscleInfo> = {
@@ -95,19 +96,12 @@ export const MUSCLE_CATALOG: Record<MuscleId, MuscleInfo> = {
     view: 'front',
     description: 'Side core musculature driving trunk rotation, waist taper, and lateral flexion.'
   },
-  trapezius: {
-    id: 'trapezius',
-    name: 'Upper Traps (Trapezius)',
-    category: 'back',
-    view: 'back',
-    description: 'Upper cervical and scapular fibers driving shoulder elevation, heavy shrugs, farmer carries, and neck yoke thickness.'
-  },
   rhomboids: {
     id: 'rhomboids',
-    name: 'Mid-Back & Rhomboids (Rhomboids & Mid-Traps)',
+    name: 'Upper Back',
     category: 'back',
     view: 'back',
-    description: 'Rhomboids and mid/lower trapezius complex powering scapular retraction, horizontal rowing density, and postural integrity.'
+    description: 'Upper back and trapezius complex powering scapular retraction, shrugs, horizontal rows, and neck/collar yoke thickness.'
   },
   latissimus_dorsi: {
     id: 'latissimus_dorsi',
@@ -231,7 +225,29 @@ export function calculateProgressiveOverload(
   }
 
   const completedWorkingSets = previousSets.filter(s => s.reps > 0 && s.weightKg > 0);
+  const completedBWWorkingSets = previousSets.filter(s => s.reps > 0 && (s.weightKg === 0 || !s.weightKg));
+
   if (completedWorkingSets.length === 0) {
+    if (completedBWWorkingSets.length > 0) {
+      const allHitTopReps = completedBWWorkingSets.every(s => s.reps >= targetRepRange.max);
+      if (allHitTopReps) {
+        return {
+          recommendedWeightKg: 2.5,
+          recommendedReps: targetRepRange.min,
+          strategy: 'increase_weight',
+          message: `Outstanding! You hit ${targetRepRange.max} reps across all bodyweight sets. Advance with a +2.5kg dip belt or push for ${targetRepRange.max + 2} bodyweight reps.`,
+          badge: '+2.5kg / +2 Reps'
+        };
+      }
+      const maxRepsHit = Math.max(...completedBWWorkingSets.map(s => s.reps));
+      return {
+        recommendedWeightKg: 0,
+        recommendedReps: Math.min(targetRepRange.max, maxRepsHit + 1),
+        strategy: 'increase_reps',
+        message: `Bodyweight baseline established! Keep strict form and aim for +1 rep per set (target: ${Math.min(targetRepRange.max, maxRepsHit + 1)} reps).`,
+        badge: '+1 Rep Target'
+      };
+    }
     return {
       recommendedWeightKg: previousSets[0]?.weightKg || 0,
       recommendedReps: targetRepRange.min,
@@ -279,6 +295,43 @@ export function calculateProgressiveOverload(
     message: `Consolidate at ${Math.round(avgWeight)}kg. Focus on clean tempo and reaching full ${targetRepRange.min} reps before adding load.`,
     badge: 'Consolidate'
   };
+}
+
+/**
+ * Formats time since training for a muscle or session.
+ * For 0 days (i.e. trained today / < 24 hours ago), displays in hours (e.g. "4h ago" or "4 hours ago").
+ * For 1+ days, displays in days (e.g. "1d ago" or "1 day ago", "2d ago" or "2 days ago").
+ */
+export function formatTimeSinceTraining(
+  daysSinceTraining: number | null | undefined,
+  lastTrainedAt?: string | null,
+  referenceDate: Date = new Date(),
+  compact: boolean = false
+): string {
+  if (daysSinceTraining === null || daysSinceTraining === undefined) {
+    return 'Never';
+  }
+
+  const d = Math.floor(daysSinceTraining);
+  if (d === 0) {
+    let hours = 0;
+    if (lastTrainedAt) {
+      const ms = Math.max(0, referenceDate.getTime() - new Date(lastTrainedAt).getTime());
+      hours = Math.max(1, Math.round(ms / (1000 * 60 * 60)));
+    } else {
+      hours = Math.max(1, Math.round(daysSinceTraining * 24));
+    }
+
+    if (compact) {
+      return `${hours}h ago`;
+    }
+    return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  }
+
+  if (compact) {
+    return `${d}d ago`;
+  }
+  return d === 1 ? '1 day ago' : `${d} days ago`;
 }
 
 /**
@@ -397,13 +450,14 @@ export function calculateMuscleExposures(
       }
 
       // Expand contributions for horizontal rows / upper back to also cover rhomboids if not explicitly listed
-      const hasRowOrUpperBack = exerciseDef.movementPattern === 'pull_horizontal' || exerciseDef.muscles.some(m => m.muscleId === 'trapezius');
+      const hasRowOrUpperBack = exerciseDef.movementPattern === 'pull_horizontal' || exerciseDef.muscles.some(m => (m.muscleId as any) === 'trapezius' || m.muscleId === 'rhomboids');
       if (hasRowOrUpperBack && !exerciseDef.muscles.some(m => m.muscleId === 'rhomboids')) {
         contributions.push({ muscleId: 'rhomboids', role: 'PRIMARY', contributionFactor: 0.85 });
       }
 
       for (const contrib of contributions) {
-        const muscleId = contrib.muscleId;
+        // Map trapezius directly into rhomboids (Upper Back)
+        const muscleId = ((contrib.muscleId as any) === 'trapezius' ? 'rhomboids' : contrib.muscleId) as MuscleId;
         const target = result[muscleId];
         if (!target) continue;
 
@@ -508,18 +562,19 @@ export function calculateMuscleExposures(
     } else if (isArm && hasDirectRecently) {
       // Direct arm training occurred (curls, pushdowns, skull crushers, etc.)
       const daysSinceDirect = data.daysSinceDirectTraining ?? data.daysSinceTraining ?? 99;
+      const timeDirectStr = formatTimeSinceTraining(daysSinceDirect, data.lastDirectTrainedAt, referenceDate, false);
       if (daysSinceDirect <= 1 && (data.directSets7d || 0) >= 6) {
         data.freshnessStatus = 'high_recent_exposure';
-        data.recommendation = `${broName} underwent heavy direct isolation loading (~${daysSinceDirect === 0 ? 'today' : '1 day ago'}). Allow full systemic recovery before high intensity.`;
+        data.recommendation = `${broName} underwent heavy direct isolation loading (~${timeDirectStr}). Allow full systemic recovery before high intensity.`;
       } else if (daysSinceDirect <= 2 || ((data.directSets7d || 0) >= 6 && daysSinceDirect <= 3)) {
         data.freshnessStatus = 'recently_trained';
-        data.recommendation = `Moderate recovery phase (~${daysSinceDirect}d ago direct session). Light accessory work or active recovery is suitable.`;
+        data.recommendation = `Moderate recovery phase (~${timeDirectStr}). Light accessory work or active recovery is suitable.`;
       } else if (daysSinceDirect <= 3.5 || data.effectiveSets7d >= 6) {
         data.freshnessStatus = 'moderate';
-        data.recommendation = `Mostly recovered (~${daysSinceDirect}d ago). Primed for moderate to high volume direct arm training today.`;
+        data.recommendation = `Mostly recovered (~${timeDirectStr}). Primed for moderate to high volume direct arm training today.`;
       } else {
         data.freshnessStatus = 'fresh';
-        data.recommendation = `Fully recovered & supercompensated (${daysSinceDirect}d since direct stimulus). Prime target for direct arm blast!`;
+        data.recommendation = `Fully recovered & supercompensated (${timeDirectStr} since direct stimulus). Prime target for direct arm blast!`;
       }
     } else if (data.isIndirectOnly) {
       // Non-arm muscle that received ONLY indirect assistance (e.g. rear delts or lower back as secondary)
@@ -538,16 +593,20 @@ export function calculateMuscleExposures(
       // Standard direct loading for compound / main muscle groups (Chest, Lats, Quads, Hamstrings, Glutes, Delts, etc.)
       if (data.daysSinceTraining <= 1 && data.effectiveSets7d >= 6) {
         data.freshnessStatus = 'high_recent_exposure';
-        data.recommendation = `${broName} underwent heavy recent loading (~${data.daysSinceTraining === 0 ? 'today' : '1 day ago'}). Allow full systemic recovery before high intensity.`;
+        const timeAgoStr = formatTimeSinceTraining(data.daysSinceTraining, data.lastTrainedAt, referenceDate, false);
+        data.recommendation = `${broName} underwent heavy recent loading (~${timeAgoStr}). Allow full systemic recovery before high intensity.`;
       } else if (data.daysSinceTraining <= 2 || (data.effectiveSets7d >= 8 && data.daysSinceTraining <= 3)) {
         data.freshnessStatus = 'recently_trained';
-        data.recommendation = `Moderate recovery phase (~${Math.floor(data.daysSinceTraining)} days ago). Light accessory work or active recovery is suitable.`;
+        const timeAgoStr = formatTimeSinceTraining(data.daysSinceTraining, data.lastTrainedAt, referenceDate, false);
+        data.recommendation = `Moderate recovery phase (~${timeAgoStr}). Light accessory work or active recovery is suitable.`;
       } else if (data.daysSinceTraining <= 4 || data.effectiveSets7d >= 4) {
         data.freshnessStatus = 'moderate';
-        data.recommendation = `Mostly recovered (~${Math.floor(data.daysSinceTraining)} days ago). Primed for moderate to high volume training today.`;
+        const timeAgoStr = formatTimeSinceTraining(data.daysSinceTraining, data.lastTrainedAt, referenceDate, false);
+        data.recommendation = `Mostly recovered (~${timeAgoStr}). Primed for moderate to high volume training today.`;
       } else {
         data.freshnessStatus = 'fresh';
-        data.recommendation = `Fully recovered & supercompensated (${Math.floor(data.daysSinceTraining)} days since stimulus). Prime target for today's training session.`;
+        const timeAgoStr = formatTimeSinceTraining(data.daysSinceTraining, data.lastTrainedAt, referenceDate, false);
+        data.recommendation = `Fully recovered & supercompensated (${timeAgoStr} since stimulus). Prime target for today's training session.`;
       }
     }
   }
@@ -652,7 +711,7 @@ export function buildTrainingRadar(
 
   // Define anatomical groupings
   const legMuscles: MuscleId[] = ['quadriceps', 'hamstrings', 'gluteus', 'calves', 'adductors'];
-  const pullMuscles: MuscleId[] = ['latissimus_dorsi', 'trapezius', 'rhomboids', 'posterior_deltoid', 'biceps', 'spinal_erectors'];
+  const pullMuscles: MuscleId[] = ['latissimus_dorsi', 'rhomboids', 'posterior_deltoid', 'biceps', 'spinal_erectors'];
   const pushMuscles: MuscleId[] = ['chest_mid', 'chest_upper', 'chest_lower', 'pectoralis_major', 'anterior_deltoid', 'lateral_deltoid', 'triceps'];
   const armMuscles: MuscleId[] = ['lateral_deltoid', 'posterior_deltoid', 'anterior_deltoid', 'biceps', 'triceps', 'forearms'];
   const coreMuscles: MuscleId[] = ['rectus_abdominis', 'obliques'];
@@ -751,7 +810,7 @@ export function buildTrainingRadar(
       {
         id: 'pull',
         name: 'Upper Body Pull',
-        allMuscles: ['latissimus_dorsi', 'trapezius', 'rhomboids', 'posterior_deltoid', 'biceps', 'spinal_erectors'] as MuscleId[],
+        allMuscles: ['latissimus_dorsi', 'rhomboids', 'posterior_deltoid', 'biceps', 'spinal_erectors'] as MuscleId[],
         title: 'Posterior Chain Pull & Rear Delts',
         duration: 50
       },
@@ -794,7 +853,13 @@ export function buildTrainingRadar(
     if (fullyRecovered.length > 0) {
       fullyRecovered.sort((a, b) => b.minDays - a.minDays);
       const selected = fullyRecovered[0];
-      const daysText = selected.minDays >= 999 ? 'never' : selected.minDays === 0 ? 'earlier today' : selected.minDays === 1 ? 'yesterday' : `${selected.minDays} days ago`;
+      const daysText = selected.minDays >= 999
+        ? 'never'
+        : selected.minDays === 0
+        ? formatTimeSinceTraining(0, null, new Date(), false)
+        : selected.minDays === 1
+        ? 'yesterday'
+        : `${selected.minDays} days ago`;
 
       suggestedFocusMuscles = selected.cleanMuscles;
       suggestedTitle = selected.pillar.title;
@@ -1084,7 +1149,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 6,
         rir: 2,
         restSeconds: 180,
-        suggestedWeightKg: 105,
         coachingNote: 'Solid intra-abdominal brace; hit parallel depth with knees tracking over mid-foot.'
       },
       {
@@ -1095,7 +1159,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 10,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 95,
         coachingNote: 'Pure hip hinge; maximize hamstring stretch with a neutral spine.'
       },
       {
@@ -1106,7 +1169,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 15,
         rir: 1,
         restSeconds: 90,
-        suggestedWeightKg: 55,
         coachingNote: 'Hold peak contraction 1s at top to maximize rectus femoris stress.'
       },
       {
@@ -1117,7 +1179,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 15,
         rir: 1,
         restSeconds: 60,
-        suggestedWeightKg: 70,
         coachingNote: '2-second deep eccentric stretch at the bottom of every rep.'
       }
     ];
@@ -1131,7 +1192,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 75,
         coachingNote: 'Drive elbows back smoothly; squeeze lats and rhomboids at top contraction.'
       },
       {
@@ -1142,7 +1202,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 65,
         coachingNote: 'Drive elbows down into your back pockets with a 1s controlled pause at sternum.'
       },
       {
@@ -1153,7 +1212,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 15,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 22.5,
         coachingNote: 'Externally rotate thumbs backward at peak contraction to engage rear delts.'
       },
       {
@@ -1164,7 +1222,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 10,
         rir: 1,
         restSeconds: 90,
-        suggestedWeightKg: 32.5,
         coachingNote: 'Strict form with full elbow extension at the bottom.'
       }
     ];
@@ -1178,7 +1235,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 82.5,
         coachingNote: 'Retract and depress scapulae; smooth touch on mid-lower sternum.'
       },
       {
@@ -1189,7 +1245,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 28,
         coachingNote: 'Focus on upper clavicular stretch at the bottom of each rep.'
       },
       {
@@ -1200,7 +1255,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 15,
         rir: 1,
         restSeconds: 75,
-        suggestedWeightKg: 12.5,
         coachingNote: 'Lead with elbows in the scapular plane with controlled negative.'
       },
       {
@@ -1211,7 +1265,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 12,
         rir: 1,
         restSeconds: 90,
-        suggestedWeightKg: 27.5,
         coachingNote: 'Push down through full elbow extension with upper arms pinned at sides; works with any handle.'
       }
     ];
@@ -1226,7 +1279,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 95,
         coachingNote: 'Solid brace, descend under control.'
       },
       {
@@ -1237,7 +1289,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 8,
         rir: 2,
         restSeconds: 150,
-        suggestedWeightKg: 80,
         coachingNote: 'Smooth descent to sternum, explosive press.'
       },
       {
@@ -1248,7 +1299,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 65,
         coachingNote: 'Drive elbows down into torso.'
       },
       {
@@ -1259,7 +1309,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 10,
         rir: 2,
         restSeconds: 120,
-        suggestedWeightKg: 90,
         coachingNote: 'Pure hip hinge with flat back.'
       }
     ];
@@ -1276,8 +1325,7 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 15,
         rir: 1,
         restSeconds: 60,
-        suggestedWeightKg: 0,
-        coachingNote: 'Posterior pelvic tilt at the top; controlled 2-second negative without swinging.'
+        coachingNote: 'Posteric pelvic tilt at the top; controlled 2-second negative without swinging.'
       });
     }
   }
@@ -1293,7 +1341,6 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
         repMax: 15,
         rir: 1,
         restSeconds: 60,
-        suggestedWeightKg: 70,
         coachingNote: '2-second deep eccentric stretch at the bottom of every rep.'
       });
     }
@@ -1306,6 +1353,276 @@ export function generateRecommendedWorkoutSession(radar: TrainingRadar): AIWorko
     rationale: radar.suggestedFocusToday.rationale,
     warmupTip: '5 min dynamic mobility + 2 progressive warmup sets before first working movement.',
     exercises
+  };
+}
+
+export interface CoachInsightData {
+  category: 'recovery' | 'overload' | 'readiness' | 'volume_balance' | 'momentum' | 'celebration' | 'checkin';
+  badge: string;
+  badgeType: 'emerald' | 'blue' | 'amber' | 'purple';
+  title: string;
+  summary: string;
+  actionItem: string;
+  statsPills: { label: string; value: string }[];
+}
+
+export function calculateAthleteAge(birthday?: string): number | null {
+  if (!birthday) return null;
+  const b = new Date(birthday);
+  if (isNaN(b.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) {
+    age--;
+  }
+  return age >= 0 && age <= 120 ? age : null;
+}
+
+export function isAthleteBirthdayToday(birthday?: string): boolean {
+  if (!birthday) return false;
+  const b = new Date(birthday);
+  if (isNaN(b.getTime())) return false;
+  const now = new Date();
+  return b.getDate() === now.getDate() && b.getMonth() === now.getMonth();
+}
+
+/**
+ * Generates an emotionally intelligent, human-like AI Coach insight tailored to actual lifts,
+ * celebrating PR breakthroughs, checking in on underperformance, recognizing birthdays, and
+ * calibrating advice to the athlete's biological age.
+ */
+export function generateCoachInsight(
+  radar: TrainingRadar,
+  musclesData: Record<MuscleId, MuscleExposureData>,
+  workouts: Workout[] = [],
+  personalRecords: PersonalRecord[] = [],
+  userProfile?: UserProfile
+): CoachInsightData {
+  const sortedWorkouts = [...workouts]
+    .filter(w => w.completedAt || w.startedAt)
+    .sort((a, b) => new Date(b.completedAt || b.startedAt).getTime() - new Date(a.completedAt || a.startedAt).getTime());
+
+  const lastWorkout = sortedWorkouts[0];
+  const now = new Date();
+  const athleteName = userProfile?.name?.trim() || 'Athlete';
+  const athleteAge = calculateAthleteAge(userProfile?.birthday);
+  const isBirthday = isAthleteBirthdayToday(userProfile?.birthday);
+
+  // If no workouts logged yet
+  if (!lastWorkout) {
+    return {
+      category: 'readiness',
+      badge: 'Welcome Athlete',
+      badgeType: 'emerald',
+      title: `Welcome to the Team, ${athleteName}!`,
+      summary: `I am your AI Coach, tracking every kilo, rep, and recovery curve in real time.${athleteAge ? ` Calibrated for your ${athleteAge}-year-old biological recovery profile.` : ''} Log your first workout today so we can establish your baseline records and begin progressive overload!`,
+      actionItem: `Recommended first session: ${radar.suggestedFocusToday.title} (~${radar.suggestedFocusToday.estimatedDurationMinutes}m).`,
+      statsPills: [
+        { label: 'Status', value: 'Ready to train' },
+        { label: 'Target', value: radar.suggestedFocusToday.title.split(' ')[0] },
+        { label: 'Est. Time', value: `~${radar.suggestedFocusToday.estimatedDurationMinutes}m` }
+      ]
+    };
+  }
+
+  // 1. HIGHEST PRIORITY: Birthday Celebration!
+  if (isBirthday) {
+    return {
+      category: 'celebration',
+      badge: 'Happy Birthday! 🎂',
+      badgeType: 'purple',
+      title: `🎉 Happy Birthday, ${athleteName}!`,
+      summary: `Wishing you a massive happy birthday, ${athleteName}! Another year stronger, wiser, and more disciplined. Every workout you've recorded this year has built lasting physical and mental grit. Whether you celebrate with birthday squats or enjoy a well-deserved feast with friends and cake, soak it in!`,
+      actionItem: `Today is your day! If you lift, make it high-energy and celebratory with zero grinding.`,
+      statsPills: [
+        { label: 'Occasion', value: 'Birthday 🎈' },
+        { label: 'Milestone', value: athleteAge ? `${athleteAge}th Year` : 'Level Up' },
+        { label: 'Mindset', value: 'Enjoy Gains' }
+      ]
+    };
+  }
+
+  const lastDate = new Date(lastWorkout.completedAt || lastWorkout.startedAt);
+  const diffMs = Math.max(0, now.getTime() - lastDate.getTime());
+  const hoursAgo = Math.max(1, Math.round(diffMs / (1000 * 60 * 60)));
+  const daysAgo = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const timeSinceString = daysAgo === 0
+    ? (hoursAgo === 1 ? '1 hour ago' : `${hoursAgo} hours ago`)
+    : (daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`);
+
+  const fatiguedNames = radar.highExposureMuscles.slice(0, 3).map(m => m.name);
+  const recoveredNames = radar.recoveredMuscles.slice(0, 3).map(m => m.name);
+  const weeklyTarget = userProfile?.trainingDaysPerWeek || 4;
+  const weeklyCount = radar.weeklyWorkoutsCount || 0;
+
+  // 2. CHECK FOR RECENT PR SMASH (Applaud them like a real coach!)
+  const workoutPRs: { exerciseName: string; weightKg: number; reps: number }[] = [];
+  for (const pr of personalRecords) {
+    if (pr.workoutId === lastWorkout.id) {
+      workoutPRs.push({
+        exerciseName: pr.exerciseName,
+        weightKg: pr.maxWeightKg,
+        reps: pr.maxReps
+      });
+    }
+  }
+
+  if (workoutPRs.length === 0 && Array.isArray(lastWorkout.exercises)) {
+    for (const ex of lastWorkout.exercises) {
+      const prSets = (ex.sets || []).filter(s => s && s.completed && s.isPR);
+      for (const ps of prSets) {
+        workoutPRs.push({
+          exerciseName: ex.exerciseName,
+          weightKg: Number(ps.weightKg) || 0,
+          reps: Number(ps.reps) || 0
+        });
+      }
+    }
+  }
+
+  // If a PR was achieved in the last workout and it was within 48 hours
+  if (workoutPRs.length > 0 && daysAgo <= 2) {
+    const topPR = workoutPRs[0];
+    const weightLabel = topPR.weightKg > 0 ? `${topPR.weightKg} kg` : 'Bodyweight';
+    return {
+      category: 'overload',
+      badge: 'New PR 🏆',
+      badgeType: 'emerald',
+      title: `PR on ${topPR.exerciseName}`,
+      summary: `You hit ${weightLabel} × ${topPR.reps} reps on ${topPR.exerciseName} ${timeSinceString}. Solid lift. Eat well and recover so you can keep building next time.`,
+      actionItem: `Focus on good recovery today so your strength stays high for the next session.`,
+      statsPills: [
+        { label: 'PR Lift', value: `${topPR.exerciseName.split(' ')[0]} ${weightLabel}` },
+        { label: 'Reps Hit', value: `${topPR.reps} reps` },
+        { label: 'Status', value: 'PR Hit' }
+      ]
+    };
+  }
+
+  // 3. CHECK FOR SIGNIFICANTLY LIGHTER WEIGHTS / UNDERPERFORMANCE (Empathetic Coach Check-in)
+  let underperformedExercise: {
+    name: string;
+    actualWeight: number;
+    expectedWeight: number;
+    actualReps: number;
+    dropPercent: number;
+  } | null = null;
+
+  if (Array.isArray(lastWorkout.exercises) && daysAgo <= 3) {
+    for (const ex of lastWorkout.exercises) {
+      const historicalPR = personalRecords.find(p => p.exerciseId === ex.exerciseId);
+      if (historicalPR && historicalPR.maxWeightKg >= 20 && historicalPR.workoutId !== lastWorkout.id) {
+        const topSet = (ex.sets || [])
+          .filter(s => s && s.completed && s.type !== 'warmup' && !s.isBodyweight)
+          .reduce((max, s) => (Number(s.weightKg) || 0) > (Number(max?.weightKg) || 0) ? s : max, null as any);
+
+        if (topSet && Number(topSet.weightKg) > 0) {
+          const actualWeight = Number(topSet.weightKg);
+          const expectedWeight = historicalPR.maxWeightKg;
+          const dropPercent = Math.round(((expectedWeight - actualWeight) / expectedWeight) * 100);
+
+          if (dropPercent >= 25 && (!underperformedExercise || dropPercent > underperformedExercise.dropPercent)) {
+            underperformedExercise = {
+              name: ex.exerciseName,
+              actualWeight,
+              expectedWeight,
+              actualReps: Number(topSet.reps) || 0,
+              dropPercent
+            };
+          }
+        }
+      }
+    }
+  }
+
+  if (underperformedExercise) {
+    return {
+      category: 'checkin',
+      badge: 'Check-in 💬',
+      badgeType: 'amber',
+      title: `${underperformedExercise.name} Check-in`,
+      summary: `Top set on ${underperformedExercise.name} was ${underperformedExercise.actualWeight} kg ${timeSinceString} (down from ${underperformedExercise.expectedWeight} kg). If your joints or energy felt off, dropping back was the smart move.`,
+      actionItem: `Listen to your body. Keep warmups thorough and work within pain-free ranges.`,
+      statsPills: [
+        { label: 'Check-in', value: 'Autoregulation' },
+        { label: 'Lift', value: underperformedExercise.name.split(' ')[0] },
+        { label: 'Approach', value: 'Smart Load' }
+      ]
+    };
+  }
+
+  // 4. Case: Workout was very recent (< 18 hours ago)
+  if (daysAgo === 0 || hoursAgo < 18) {
+    const fatigueContext = fatiguedNames.length > 0
+      ? `${fatiguedNames.join(' and ')} are recovering.`
+      : 'Muscles are currently in recovery.';
+
+    return {
+      category: 'recovery',
+      badge: `Trained ${hoursAgo}h ago`,
+      badgeType: 'amber',
+      title: `Recovery: ${lastWorkout.name || 'Recent Workout'}`,
+      summary: `Logged a session ${timeSinceString} (${(lastWorkout.totalVolumeKg || 0).toLocaleString()} kg total volume). ${fatigueContext} Rest up and stay hydrated.`,
+      actionItem: recoveredNames.length > 0
+        ? `If lifting today: Focus on ${recoveredNames.slice(0, 2).join(' & ')}.`
+        : 'Take a rest day to let muscles recover.',
+      statsPills: [
+        { label: 'Last Lift', value: `${hoursAgo}h ago` },
+        { label: 'Volume', value: `${(lastWorkout.totalVolumeKg || 0).toLocaleString()} kg` },
+        { label: 'Next Focus', value: radar.suggestedFocusToday.title.split(':')[0] }
+      ]
+    };
+  }
+
+  // 5. Case: Imbalance check (Push vs Pull)
+  if (radar.pushPullRatio > 1.5 && radar.weeklyWorkoutsCount >= 2) {
+    return {
+      category: 'volume_balance',
+      badge: 'Balance Check',
+      badgeType: 'blue',
+      title: 'Add Pulling Volume',
+      summary: `Your push-to-pull ratio is ${radar.pushPullRatio}:1 right now. Add some horizontal rows and lat pulldowns to keep your shoulders and back balanced.`,
+      actionItem: `Focus on rows and pulling: ${radar.suggestedFocusToday.title}`,
+      statsPills: [
+        { label: 'Push : Pull', value: `${radar.pushPullRatio}:1` },
+        { label: 'Last Trained', value: timeSinceString },
+        { label: 'Target', value: 'Back & Pull' }
+      ]
+    };
+  }
+
+  // 6. Case: Prime recovery window (1-3 days ago)
+  if (daysAgo >= 1 && daysAgo <= 3) {
+    const primeMuscles = recoveredNames.length > 0 ? recoveredNames.join(' & ') : radar.suggestedFocusToday.title;
+    return {
+      category: 'readiness',
+      badge: 'Ready to Train ⚡',
+      badgeType: 'emerald',
+      title: `Ready: ${radar.suggestedFocusToday.title}`,
+      summary: `Last session was ${timeSinceString}. ${primeMuscles} are recovered and ready for work today.`,
+      actionItem: `Recommended session: ${radar.suggestedFocusToday.title} (~${radar.suggestedFocusToday.estimatedDurationMinutes}m).`,
+      statsPills: [
+        { label: 'Readiness', value: 'Recovered' },
+        { label: 'Weekly Target', value: `${weeklyCount}/${weeklyTarget} sessions` },
+        { label: 'Last Lift', value: timeSinceString }
+      ]
+    };
+  }
+
+  // 7. Case: Long rest (> 3 days)
+  return {
+    category: 'momentum',
+    badge: 'Fully Rested ⚡',
+    badgeType: 'purple',
+    title: 'Fully Rested: Good Time to Train',
+    summary: `It has been ${timeSinceString} since your last workout. Your muscles and joints are fully rested and ready to train.`,
+    actionItem: `Recommended session: ${radar.suggestedFocusToday.title}.`,
+    statsPills: [
+      { label: 'Rest Period', value: `${daysAgo} days` },
+      { label: 'Freshness', value: '100% Fresh' },
+      { label: 'Prime Target', value: radar.suggestedFocusToday.title.split(' ')[0] }
+    ]
   };
 }
 

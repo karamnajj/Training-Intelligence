@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Workout, MuscleId } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Workout, MuscleId, PersonalRecord } from '../../types';
 import { MUSCLE_CATALOG } from '../../lib/muscleMath';
+import { isBodyweightExercise } from '../../lib/exerciseDatabase';
+import { computeAllWorkoutsPRs } from '../../lib/prMath';
 import { EditWorkoutModal } from './EditWorkoutModal';
 import {
   Calendar,
@@ -16,11 +18,13 @@ import {
   Plus,
   AlertTriangle,
   Check,
-  RefreshCw
+  RefreshCw,
+  Trophy
 } from 'lucide-react';
 
 interface HistoryViewProps {
   workouts: Workout[];
+  personalRecords?: PersonalRecord[];
   onRepeatWorkout: (workout: Workout) => void;
   onUpdateWorkout: (workout: Workout) => void;
   onDeleteWorkout: (id: string) => void;
@@ -47,6 +51,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
+
+  // Compute PR achievements chronologically across all workouts in logbook
+  const workoutsPRMap = useMemo(() => computeAllWorkoutsPRs(workouts), [workouts]);
 
   // Auto-sync on view mount
   useEffect(() => {
@@ -142,6 +149,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           filteredWorkouts.map(w => {
             const isExpanded = expandedWorkoutId === w.id;
             const workoutDate = new Date(w.completedAt || w.startedAt || Date.now());
+            const prInfo = workoutsPRMap.get(w.id);
+            const prCount = prInfo?.prCount || w.prCount || 0;
 
             return (
               <div
@@ -154,13 +163,22 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   className="p-5 sm:p-6 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2.5 flex-wrap">
                       <h3 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white">
                         {w.name}
                       </h3>
                       <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50">
                         {Math.round((w.durationSeconds || 0) / 60)} min
                       </span>
+                      {prCount > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 font-extrabold text-xs border border-amber-500/35 shadow-xs"
+                          title={`${prCount} Personal Record${prCount === 1 ? '' : 's'} achieved in this workout session!`}
+                        >
+                          <Trophy className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                          {prCount} {prCount === 1 ? 'PR' : 'PRs'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
@@ -290,19 +308,58 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                             </div>
 
                             <div className="space-y-1 text-xs font-mono">
-                              {rawSets.map((s, sIdx) => (
-                                <div
-                                  key={s.id || sIdx}
-                                  className="flex items-center justify-between py-1 text-slate-600 dark:text-slate-300"
-                                >
-                                  <span>
-                                    Set {s.setNumber || sIdx + 1} ({s.type || 'normal'})
-                                  </span>
-                                  <span className="font-bold text-slate-900 dark:text-white">
-                                    {s.weightKg ?? 0} kg × {s.reps ?? 0} reps
-                                  </span>
+                              {rawSets.map((s, sIdx) => {
+                                const setKey = s.id || `${ex.exerciseId}_${sIdx}`;
+                                const setPRInfo = prInfo?.setPRs[setKey] || (s.isPR ? { isPR: true, prType: s.prType, label: s.prType === 'weight' ? 'Weight PR' : (s.prType === 'reps' ? 'Rep PR' : 'PR'), detail: s.prType === 'weight' ? 'Weight PR' : 'Rep PR' } : undefined);
+
+                                return (
+                                  <div
+                                    key={s.id || sIdx}
+                                    className="flex items-center justify-between py-1 text-slate-600 dark:text-slate-300"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>
+                                        Set {s.setNumber || sIdx + 1} ({s.type || 'normal'})
+                                      </span>
+                                      {setPRInfo?.isPR && (
+                                        <span
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 font-extrabold text-[10px] border border-amber-500/35 uppercase tracking-wider shadow-2xs"
+                                          title={setPRInfo.detail || (setPRInfo.prType === 'weight' ? 'Weight PR' : 'Rep PR')}
+                                        >
+                                          <Trophy className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
+                                          {setPRInfo.prType === 'weight' ? 'Weight PR' : setPRInfo.prType === 'reps' ? 'Rep PR' : 'PR'}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="font-bold text-slate-900 dark:text-white">
+                                      {(() => {
+                                        const isBWCompatible = isBodyweightExercise(ex.exerciseId, ex.exerciseName);
+                                        if (!isBWCompatible) {
+                                          return <>{s.weightKg ?? 0} kg × {s.reps ?? 0} reps</>;
+                                        }
+                                        if ((s.weightKg ?? 0) > 0 && s.isBodyweight) {
+                                          return (
+                                            <>
+                                              <span className="text-blue-500 font-semibold text-[11px] bg-blue-500/10 dark:bg-blue-500/20 px-1.5 py-0.5 rounded-md mr-1 border border-blue-500/20">
+                                                BW +{s.weightKg} kg
+                                              </span>
+                                              × {s.reps ?? 0} reps
+                                            </>
+                                          );
+                                        }
+                                        return (
+                                          <>
+                                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] bg-emerald-500/10 dark:bg-emerald-500/20 px-1.5 py-0.5 rounded-md mr-1 border border-emerald-500/20">
+                                              Bodyweight
+                                            </span>
+                                            × {s.reps ?? 0} reps
+                                          </>
+                                        );
+                                      })()}
+                                    </span>
                                 </div>
-                              ))}
+                              );
+                            })}
                             </div>
                           </div>
                         );
@@ -345,6 +402,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             onUpdateWorkout(updated);
             setEditingWorkout(null);
           }}
+          onDeleteWorkout={onDeleteWorkout}
           onClose={() => setEditingWorkout(null)}
         />
       )}

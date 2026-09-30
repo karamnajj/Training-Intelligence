@@ -21,10 +21,24 @@ import {
   query,
   orderBy
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import rawFirebaseConfig from '../../firebase-applet-config.json';
 import { Workout, WorkoutTemplate, PersonalRecord, UserProfile } from '../types';
 import { isGenuineWorkout } from './storageVault';
 import { formatAthleteName } from './nameUtils';
+
+// Support runtime environment variables for deployment (Render / Vercel / GitHub)
+// while gracefully falling back to local firebase-applet-config.json
+const firebaseConfig = {
+  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId,
+  appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || rawFirebaseConfig.appId,
+  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || rawFirebaseConfig.apiKey,
+  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || rawFirebaseConfig.authDomain,
+  firestoreDatabaseId: (import.meta as any).env?.VITE_FIREBASE_FIRESTORE_DATABASE_ID || rawFirebaseConfig.firestoreDatabaseId,
+  storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || rawFirebaseConfig.storageBucket,
+  messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || rawFirebaseConfig.messagingSenderId,
+  measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || rawFirebaseConfig.measurementId || '',
+  oAuthClientId: (import.meta as any).env?.VITE_FIREBASE_OAUTH_CLIENT_ID || rawFirebaseConfig.oAuthClientId || '',
+};
 
 // 1. Initialize Firebase App and Services
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -523,15 +537,28 @@ export async function getPersonalRecordsFromFirestore(userId: string): Promise<P
 }
 
 // 8. User Profile Cloud Persistence
-export async function saveUserProfileToFirestore(userId: string, profile: UserProfile): Promise<void> {
+export async function saveUserProfileToFirestore(userId: string, profile: UserProfile, email?: string, username?: string): Promise<void> {
   const path = `users/${userId}`;
   try {
     const userDoc = doc(db, 'users', userId);
+    const userEmail = email || auth.currentUser?.email || '';
+    const userDisplayName = username || profile.name || auth.currentUser?.displayName || 'Athlete';
+
+    // Strip undefined values to prevent Firestore serialization exceptions
+    const sanitizedProfile: Record<string, any> = {};
+    for (const [k, v] of Object.entries(profile)) {
+      if (v !== undefined) {
+        sanitizedProfile[k] = v;
+      }
+    }
+
     await setDoc(
       userDoc,
       {
         id: userId,
-        profile,
+        email: userEmail,
+        username: userDisplayName,
+        profile: sanitizedProfile,
         updatedAt: new Date().toISOString(),
       },
       { merge: true }

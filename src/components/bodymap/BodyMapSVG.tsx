@@ -423,27 +423,19 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
       {/* ============================================================ */}
       {view === 'back' && (
         <g id="back-muscles">
-          {/* BACK - Upper Trapezius (Neck & Collar Yoke) */}
-          {renderMuscleGroup(
-            'trapezius',
-            'Upper Traps',
-            <>
-              {/* Upper Trapezius Yoke */}
-              <path
-                d="M 100,44 C 91,46 81,51 72,58 C 74,64 77,68 82,70 C 89,67 95,66 100,66 C 105,66 111,67 118,70 C 123,68 126,64 128,58 C 119,51 109,46 100,44 Z"
-                fill={getMuscleFill('trapezius')}
-                stroke={getMuscleStroke('trapezius')}
-                strokeWidth={getStrokeWidth('trapezius')}
-                opacity={getOpacity('trapezius')}
-              />
-            </>
-          )}
-
-          {/* BACK - Mid-Back & Rhomboids (Rhomboids & Mid/Lower Traps) */}
+          {/* BACK - Upper Back (Rhomboids & Trapezius) */}
           {renderMuscleGroup(
             'rhomboids',
-            'Mid-Back & Rhomboids',
+            'Upper Back',
             <>
+              {/* Upper Trapezius / Neck Yoke */}
+              <path
+                d="M 100,44 C 91,46 81,51 72,58 C 74,64 77,68 82,70 C 89,67 95,66 100,66 C 105,66 111,67 118,70 C 123,68 126,64 128,58 C 119,51 109,46 100,44 Z"
+                fill={getMuscleFill('rhomboids')}
+                stroke={getMuscleStroke('rhomboids')}
+                strokeWidth={getStrokeWidth('rhomboids')}
+                opacity={getOpacity('rhomboids')}
+              />
               {/* Left Rhomboid / Mid-Trap */}
               <path
                 d="M 99,67 C 93,67 85,71 80,75 C 79,84 86,98 99,114 Z"

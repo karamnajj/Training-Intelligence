@@ -527,8 +527,10 @@ export const storageVault = {
     const k = getActiveUserStorageKey('profile');
     try {
       localStorage.setItem(k, JSON.stringify(profile));
+      localStorage.setItem(LS_KEYS.PROFILE, JSON.stringify(profile));
     } catch {}
     await idbSet(k, profile);
+    await idbSet(LS_KEYS.PROFILE, profile);
   },
 
   async getProfile(): Promise<UserProfile | null> {
@@ -542,6 +544,14 @@ export const storageVault = {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.id) return parsed;
       }
+      // Resilient fallback to universal profile cache
+      const generic = localStorage.getItem(LS_KEYS.PROFILE);
+      if (generic) {
+        const parsed = JSON.parse(generic);
+        if (parsed && parsed.id) return parsed;
+      }
+      const genericIdb = await idbGet<UserProfile>(LS_KEYS.PROFILE);
+      if (genericIdb && genericIdb.id) return genericIdb;
     } catch {}
 
     return null;
