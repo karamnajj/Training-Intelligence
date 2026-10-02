@@ -19,29 +19,44 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
   onHoverMuscle,
   onSelectMuscle
 }) => {
+  // Fitbod-style dynamic gradient or solid fill based on recovery state
   const getMuscleFill = (id: MuscleId) => {
     const data = musclesData[id];
     const status = data?.freshnessStatus || 'untrained';
-    return FRESHNESS_COLORS[status]?.fill || '#94a3b8';
+    if (status === 'fresh') return 'url(#fitbod-grad-fresh)';
+    if (status === 'moderate') return 'url(#fitbod-grad-moderate)';
+    if (status === 'recently_trained' || status === 'high_recent_exposure') return 'url(#fitbod-grad-fatigued)';
+    return 'url(#fitbod-grad-untrained)';
   };
 
   const getMuscleStroke = (id: MuscleId) => {
     if (selectedMuscle === id) return '#ffffff';
-    if (hoveredMuscle === id) return '#f8fafc';
+    if (hoveredMuscle === id) return '#38bdf8';
     const data = musclesData[id];
     const status = data?.freshnessStatus || 'untrained';
-    return FRESHNESS_COLORS[status]?.stroke || '#64748b';
+    if (status === 'fresh') return '#34d399';
+    if (status === 'moderate') return '#fbbf24';
+    if (status === 'recently_trained' || status === 'high_recent_exposure') return '#f87171';
+    return 'rgba(148, 163, 184, 0.25)';
   };
 
   const getStrokeWidth = (id: MuscleId) => {
-    if (selectedMuscle === id) return '2.5';
-    if (hoveredMuscle === id) return '2';
-    return '1.2';
+    if (selectedMuscle === id) return '2';
+    if (hoveredMuscle === id) return '1.8';
+    return '1';
   };
 
   const getOpacity = (id: MuscleId) => {
-    if (hoveredMuscle && hoveredMuscle !== id) return '0.65';
-    return '0.95';
+    if (hoveredMuscle && hoveredMuscle !== id) return '0.7';
+    return '0.98';
+  };
+
+  const getFilter = (id: MuscleId) => {
+    if (selectedMuscle === id || hoveredMuscle === id) return 'url(#fitbod-glow-active)';
+    const data = musclesData[id];
+    const status = data?.freshnessStatus || 'untrained';
+    if (status === 'fresh') return 'url(#fitbod-glow-subtle)';
+    return undefined;
   };
 
   const renderMuscleGroup = (
@@ -50,10 +65,17 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
     children: React.ReactNode
   ) => {
     const displayName = MUSCLE_CATALOG[id]?.name || name;
+    const isSelected = selectedMuscle === id;
+    const isHovered = hoveredMuscle === id;
+
     return (
       <g
-        id={`muscle-group-${id}`}
-        className="cursor-pointer transition-all duration-200 group"
+        id={`fitbod-muscle-${id}`}
+        className="cursor-pointer transition-transform duration-200 focus:outline-none"
+        style={{
+          transformOrigin: '100px 175px',
+          transform: isHovered || isSelected ? 'scale(1.015)' : 'scale(1)'
+        }}
         onMouseEnter={() => onHoverMuscle(id)}
         onMouseLeave={() => onHoverMuscle(null)}
         onClick={() => onSelectMuscle(id)}
@@ -69,54 +91,124 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
   return (
     <svg
       viewBox="0 0 200 350"
-      className="w-full h-auto max-h-[440px] select-none mx-auto drop-shadow-xs"
-      aria-label={`${view === 'front' ? 'Front' : 'Back'} Body Map`}
+      className="w-full h-auto max-h-[460px] select-none mx-auto drop-shadow-md"
+      aria-label={`${view === 'front' ? 'Front' : 'Back'} Fitbod Body Map`}
     >
-      {/* Background Body Skeleton & Silhouette (Subtle anatomical base) */}
-      <g id="body-base-silhouette" className="fill-slate-100 dark:fill-slate-800/80 stroke-slate-200 dark:stroke-slate-700/60" strokeWidth="0.8">
-        {/* Head & Neck */}
-        <path d="M 100,10 C 111,10 116,18 116,28 C 116,38 109,46 100,47 C 91,46 84,38 84,28 C 84,18 89,10 100,10 Z" />
-        <path d="M 92,44 C 91,52 86,55 81,59 L 119,59 C 114,55 109,52 108,44 Z" />
+      <defs>
+        {/* Fitbod Fresh Radiant Gradient (Emerald to Mint) */}
+        <linearGradient id="fitbod-grad-fresh" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#10b981" />
+          <stop offset="100%" stopColor="#059669" />
+        </linearGradient>
 
-        {/* Hands / Wrists */}
-        <path d="M 44,185 C 41,192 41,198 44,204 C 47,208 50,207 51,202 L 52,185 Z" />
-        <path d="M 156,185 C 159,192 159,198 156,204 C 153,208 150,207 149,202 L 148,185 Z" />
+        {/* Fitbod Moderate Recovery Gradient (Gold Amber to Honey) */}
+        <linearGradient id="fitbod-grad-moderate" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fbbf24" />
+          <stop offset="100%" stopColor="#d97706" />
+        </linearGradient>
 
-        {/* Knees & Feet */}
-        {/* Knee joints */}
-        <circle cx="82" cy="242" r="6" />
-        <circle cx="118" cy="242" r="6" />
+        {/* Fitbod High-Exposure / Fatigued Gradient (Crimson to Coral) */}
+        <linearGradient id="fitbod-grad-fatigued" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f87171" />
+          <stop offset="100%" stopColor="#dc2626" />
+        </linearGradient>
 
-        {/* Ankles & Feet */}
-        <path d="M 75,324 C 74,332 68,338 66,342 C 73,342 85,342 88,342 C 88,338 87,332 86,324 Z" />
-        <path d="M 125,324 C 126,332 132,338 134,342 C 127,342 115,342 112,342 C 112,338 113,332 114,324 Z" />
+        {/* Fitbod Untrained / Stealth Matte Gradient */}
+        <linearGradient id="fitbod-grad-untrained" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#334155" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#1e293b" stopOpacity="0.9" />
+        </linearGradient>
+
+        {/* Subtle Athletic Silhouette Gradient */}
+        <linearGradient id="fitbod-silhouette-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#0f172a" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#090d16" stopOpacity="0.98" />
+        </linearGradient>
+
+        {/* Glow Filters */}
+        <filter id="fitbod-glow-subtle" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#10b981" floodOpacity="0.35" />
+        </filter>
+        <filter id="fitbod-glow-active" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor="#38bdf8" floodOpacity="0.75" />
+        </filter>
+      </defs>
+
+      {/* ============================================================ */}
+      {/* BASE HUMAN ATHLETIC SILHOUETTE (FITBOD CONTOUR)               */}
+      {/* ============================================================ */}
+      <g id="fitbod-base-silhouette" className="stroke-slate-800/80 dark:stroke-slate-700/50" strokeWidth="1">
+        {/* Head & Cranium */}
+        <path
+          d="M 100,8 C 111,8 116,16 116,26 C 116,36 109,44 100,45 C 91,44 84,36 84,26 C 84,16 89,8 100,8 Z"
+          fill="url(#fitbod-silhouette-grad)"
+        />
+        {/* Neck Column */}
+        <path
+          d="M 93,43 C 92,51 86,55 80,58 L 120,58 C 114,55 108,51 107,43 Z"
+          fill="url(#fitbod-silhouette-grad)"
+        />
+
+        {/* Clavicular Collarbone Landmark (Front only) */}
+        {view === 'front' && (
+          <path
+            d="M 80,58 Q 100,62 120,58"
+            fill="none"
+            stroke="rgba(255,255,255,0.2)"
+            strokeWidth="0.8"
+          />
+        )}
+
+        {/* Wrist & Hands / Stylized Athletic Fists */}
+        <path
+          d="M 43,184 C 40,191 40,197 43,203 C 46,207 49,206 51,201 L 52,184 Z"
+          fill="url(#fitbod-silhouette-grad)"
+        />
+        <path
+          d="M 157,184 C 160,191 160,197 157,203 C 154,207 151,206 149,201 L 148,184 Z"
+          fill="url(#fitbod-silhouette-grad)"
+        />
+
+        {/* Patella / Knee Joint Caps */}
+        <circle cx="82" cy="242" r="5" fill="#1e293b" stroke="rgba(255,255,255,0.15)" strokeWidth="0.8" />
+        <circle cx="118" cy="242" r="5" fill="#1e293b" stroke="rgba(255,255,255,0.15)" strokeWidth="0.8" />
+
+        {/* Ankles & Athletic Feet */}
+        <path
+          d="M 75,324 C 74,332 67,338 65,342 C 73,342 85,342 88,342 C 88,338 87,332 86,324 Z"
+          fill="url(#fitbod-silhouette-grad)"
+        />
+        <path
+          d="M 125,324 C 126,332 133,338 135,342 C 127,342 115,342 112,342 C 112,338 113,332 114,324 Z"
+          fill="url(#fitbod-silhouette-grad)"
+        />
       </g>
 
       {/* ============================================================ */}
-      {/* FRONT (ANTERIOR) MUSCLES                                      */}
+      {/* ANTERIOR (FRONT) MUSCLES                                      */}
       {/* ============================================================ */}
       {view === 'front' && (
-        <g id="front-muscles">
+        <g id="fitbod-anterior-muscles">
           {/* CHEST - Upper (Clavicular Head) */}
           {renderMuscleGroup(
             'chest_upper',
             'Upper Chest',
             <>
-              {/* Left Clavicular */}
               <path
-                d="M 98,58 C 90,57 78,57 71,60 C 69,63 68,67 69,70 C 76,70 88,69 98,71 Z"
+                d="M 98,59 C 90,58 79,58 72,61 C 70,64 69,67 70,70 C 77,70 88,69 98,71 Z"
                 fill={getMuscleFill('chest_upper')}
                 stroke={getMuscleStroke('chest_upper')}
                 strokeWidth={getStrokeWidth('chest_upper')}
                 opacity={getOpacity('chest_upper')}
+                filter={getFilter('chest_upper')}
               />
-              {/* Right Clavicular */}
               <path
-                d="M 102,58 C 110,57 122,57 129,60 C 131,63 132,67 131,70 C 124,70 112,69 102,71 Z"
+                d="M 102,59 C 110,58 121,58 128,61 C 130,64 131,67 130,70 C 123,70 112,69 102,71 Z"
                 fill={getMuscleFill('chest_upper')}
                 stroke={getMuscleStroke('chest_upper')}
                 strokeWidth={getStrokeWidth('chest_upper')}
                 opacity={getOpacity('chest_upper')}
+                filter={getFilter('chest_upper')}
               />
             </>
           )}
@@ -126,21 +218,21 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
             'chest_mid',
             'Mid Chest',
             <>
-              {/* Left Mid Chest */}
               <path
-                d="M 98,72 C 86,70 75,72 68,72 C 67,78 68,84 72,87 C 80,88 90,87 98,87 Z"
+                d="M 98,73 C 86,71 76,73 69,73 C 68,79 69,85 73,88 C 81,89 90,88 98,88 Z"
                 fill={getMuscleFill('chest_mid')}
                 stroke={getMuscleStroke('chest_mid')}
                 strokeWidth={getStrokeWidth('chest_mid')}
                 opacity={getOpacity('chest_mid')}
+                filter={getFilter('chest_mid')}
               />
-              {/* Right Mid Chest */}
               <path
-                d="M 102,72 C 114,70 125,72 132,72 C 133,78 132,84 128,87 C 120,88 110,87 102,87 Z"
+                d="M 102,73 C 114,71 124,73 131,73 C 132,79 131,85 127,88 C 119,89 110,88 102,88 Z"
                 fill={getMuscleFill('chest_mid')}
                 stroke={getMuscleStroke('chest_mid')}
                 strokeWidth={getStrokeWidth('chest_mid')}
                 opacity={getOpacity('chest_mid')}
+                filter={getFilter('chest_mid')}
               />
             </>
           )}
@@ -150,69 +242,69 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
             'chest_lower',
             'Lower Chest',
             <>
-              {/* Left Lower Chest */}
               <path
-                d="M 98,89 C 88,89 78,89 72,88 C 72,94 77,100 85,102 C 92,102 96,98 98,95 Z"
+                d="M 98,90 C 88,90 79,90 73,89 C 73,95 78,101 86,103 C 93,103 96,99 98,96 Z"
                 fill={getMuscleFill('chest_lower')}
                 stroke={getMuscleStroke('chest_lower')}
                 strokeWidth={getStrokeWidth('chest_lower')}
                 opacity={getOpacity('chest_lower')}
+                filter={getFilter('chest_lower')}
               />
-              {/* Right Lower Chest */}
               <path
-                d="M 102,89 C 112,89 122,89 128,88 C 128,94 123,100 115,102 C 108,102 104,98 102,95 Z"
+                d="M 102,90 C 112,90 121,90 127,89 C 127,95 122,101 114,103 C 107,103 104,99 102,96 Z"
                 fill={getMuscleFill('chest_lower')}
                 stroke={getMuscleStroke('chest_lower')}
                 strokeWidth={getStrokeWidth('chest_lower')}
                 opacity={getOpacity('chest_lower')}
+                filter={getFilter('chest_lower')}
               />
             </>
           )}
 
-          {/* SHOULDERS - Anterior Deltoid (Front Delts) */}
+          {/* DELTOIDS - Anterior (Front Delts) */}
           {renderMuscleGroup(
             'anterior_deltoid',
-            'Front Deltoids',
+            'Front Shoulders',
             <>
-              {/* Left Anterior Delt */}
               <path
-                d="M 70,58 C 65,58 60,61 58,66 C 56,72 57,79 63,84 C 66,80 67,73 68,66 Z"
+                d="M 71,59 C 66,59 61,62 59,67 C 57,73 58,80 64,85 C 67,81 68,74 69,67 Z"
                 fill={getMuscleFill('anterior_deltoid')}
                 stroke={getMuscleStroke('anterior_deltoid')}
                 strokeWidth={getStrokeWidth('anterior_deltoid')}
                 opacity={getOpacity('anterior_deltoid')}
+                filter={getFilter('anterior_deltoid')}
               />
-              {/* Right Anterior Delt */}
               <path
-                d="M 130,58 C 135,58 140,61 142,66 C 144,72 143,79 137,84 C 134,80 133,73 132,66 Z"
+                d="M 129,59 C 134,59 139,62 141,67 C 143,73 142,80 136,85 C 133,81 132,74 131,67 Z"
                 fill={getMuscleFill('anterior_deltoid')}
                 stroke={getMuscleStroke('anterior_deltoid')}
                 strokeWidth={getStrokeWidth('anterior_deltoid')}
                 opacity={getOpacity('anterior_deltoid')}
+                filter={getFilter('anterior_deltoid')}
               />
             </>
           )}
 
-          {/* SHOULDERS - Lateral Deltoid (Side Delts) */}
+          {/* DELTOIDS - Lateral (Side Delts) */}
           {renderMuscleGroup(
             'lateral_deltoid',
-            'Side Deltoids',
+            'Side Shoulders',
             <>
-              {/* Left Lateral Delt */}
               <path
-                d="M 57,64 C 52,67 48,73 49,81 C 50,88 54,92 58,92 C 57,84 56,76 57,64 Z"
+                d="M 58,65 C 53,68 49,74 50,82 C 51,89 55,93 59,93 C 58,85 57,77 58,65 Z"
                 fill={getMuscleFill('lateral_deltoid')}
                 stroke={getMuscleStroke('lateral_deltoid')}
                 strokeWidth={getStrokeWidth('lateral_deltoid')}
                 opacity={getOpacity('lateral_deltoid')}
+                filter={getFilter('lateral_deltoid')}
               />
-              {/* Right Lateral Delt */}
               <path
-                d="M 143,64 C 148,67 152,73 151,81 C 150,88 146,92 142,92 C 143,84 144,76 143,64 Z"
+                d="M 142,65 C 147,68 151,74 150,82 C 149,89 145,93 141,93 C 142,85 143,77 142,65 Z"
                 fill={getMuscleFill('lateral_deltoid')}
                 stroke={getMuscleStroke('lateral_deltoid')}
                 strokeWidth={getStrokeWidth('lateral_deltoid')}
                 opacity={getOpacity('lateral_deltoid')}
+                filter={getFilter('lateral_deltoid')}
               />
             </>
           )}
@@ -222,148 +314,152 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
             'biceps',
             'Biceps',
             <>
-              {/* Left Bicep */}
               <path
-                d="M 57,94 C 52,98 51,110 52,122 C 53,128 57,130 61,128 C 65,123 66,112 65,100 C 64,95 60,93 57,94 Z"
+                d="M 58,95 C 53,99 52,111 53,123 C 54,129 58,131 62,129 C 66,124 67,113 66,101 C 65,96 61,94 58,95 Z"
                 fill={getMuscleFill('biceps')}
                 stroke={getMuscleStroke('biceps')}
                 strokeWidth={getStrokeWidth('biceps')}
                 opacity={getOpacity('biceps')}
+                filter={getFilter('biceps')}
               />
-              {/* Right Bicep */}
               <path
-                d="M 143,94 C 148,98 149,110 148,122 C 147,128 143,130 139,128 C 135,123 134,112 135,100 C 136,95 140,93 143,94 Z"
+                d="M 142,95 C 147,99 148,111 147,123 C 146,129 142,131 138,129 C 134,124 133,113 134,101 C 135,96 139,94 142,95 Z"
                 fill={getMuscleFill('biceps')}
                 stroke={getMuscleStroke('biceps')}
                 strokeWidth={getStrokeWidth('biceps')}
                 opacity={getOpacity('biceps')}
+                filter={getFilter('biceps')}
               />
             </>
           )}
 
-          {/* ARMS - Forearms (Brachioradialis & Flexors) */}
+          {/* ARMS - Forearms (Brachioradialis & Wrist Flexors) */}
           {renderMuscleGroup(
             'forearms',
             'Forearms',
             <>
-              {/* Left Forearm */}
               <path
-                d="M 52,130 C 47,135 45,145 46,160 C 47,172 49,182 52,183 C 55,183 58,175 60,165 C 62,152 62,138 59,132 Z"
+                d="M 53,131 C 48,136 46,146 47,161 C 48,173 50,181 53,182 C 56,182 59,174 61,164 C 63,151 63,137 60,131 Z"
                 fill={getMuscleFill('forearms')}
                 stroke={getMuscleStroke('forearms')}
                 strokeWidth={getStrokeWidth('forearms')}
                 opacity={getOpacity('forearms')}
+                filter={getFilter('forearms')}
               />
-              {/* Right Forearm */}
               <path
-                d="M 148,130 C 153,135 155,145 154,160 C 153,172 151,182 148,183 C 145,183 142,175 140,165 C 138,152 138,138 141,132 Z"
+                d="M 147,131 C 152,136 154,146 153,161 C 152,173 150,181 147,182 C 144,182 141,174 139,164 C 137,151 137,137 140,131 Z"
                 fill={getMuscleFill('forearms')}
                 stroke={getMuscleStroke('forearms')}
                 strokeWidth={getStrokeWidth('forearms')}
                 opacity={getOpacity('forearms')}
+                filter={getFilter('forearms')}
               />
             </>
           )}
 
-          {/* CORE - Rectus Abdominis (Abs 6-Pack) */}
+          {/* CORE - Rectus Abdominis (Fitbod 6-Pack Symmetry) */}
           {renderMuscleGroup(
             'rectus_abdominis',
-            'Abs (Rectus Abdominis)',
+            'Abdominals',
             <>
-              {/* Top Pair */}
+              {/* Upper Abs */}
               <path
-                d="M 90,105 C 93,104 96,104 98,104 L 98,116 C 95,116 92,116 90,115 C 88,112 88,108 90,105 Z"
+                d="M 91,105 C 94,104 97,104 98,104 L 98,116 C 95,116 92,116 91,115 C 89,112 89,108 91,105 Z"
                 fill={getMuscleFill('rectus_abdominis')}
                 stroke={getMuscleStroke('rectus_abdominis')}
                 strokeWidth={getStrokeWidth('rectus_abdominis')}
                 opacity={getOpacity('rectus_abdominis')}
+                filter={getFilter('rectus_abdominis')}
               />
               <path
-                d="M 110,105 C 107,104 104,104 102,104 L 102,116 C 105,116 108,116 110,115 C 112,112 112,108 110,105 Z"
+                d="M 109,105 C 106,104 103,104 102,104 L 102,116 C 105,116 108,116 109,115 C 111,112 111,108 109,105 Z"
                 fill={getMuscleFill('rectus_abdominis')}
                 stroke={getMuscleStroke('rectus_abdominis')}
                 strokeWidth={getStrokeWidth('rectus_abdominis')}
                 opacity={getOpacity('rectus_abdominis')}
+                filter={getFilter('rectus_abdominis')}
               />
-
-              {/* Middle Pair */}
+              {/* Middle Abs */}
               <path
-                d="M 89,119 C 93,118 96,118 98,118 L 98,131 C 94,131 91,131 89,130 C 87,126 87,122 89,119 Z"
+                d="M 90,119 C 94,118 97,118 98,118 L 98,131 C 94,131 92,131 90,130 C 88,126 88,122 90,119 Z"
                 fill={getMuscleFill('rectus_abdominis')}
                 stroke={getMuscleStroke('rectus_abdominis')}
                 strokeWidth={getStrokeWidth('rectus_abdominis')}
                 opacity={getOpacity('rectus_abdominis')}
-              />
-              <path
-                d="M 111,119 C 107,118 104,118 102,118 L 102,131 C 106,131 109,131 111,130 C 113,126 113,122 111,119 Z"
-                fill={getMuscleFill('rectus_abdominis')}
-                stroke={getMuscleStroke('rectus_abdominis')}
-                strokeWidth={getStrokeWidth('rectus_abdominis')}
-                opacity={getOpacity('rectus_abdominis')}
-              />
-
-              {/* Lower Pair */}
-              <path
-                d="M 90,134 C 93,133 96,133 98,133 L 98,148 C 95,148 93,147 91,145 C 88,140 88,136 90,134 Z"
-                fill={getMuscleFill('rectus_abdominis')}
-                stroke={getMuscleStroke('rectus_abdominis')}
-                strokeWidth={getStrokeWidth('rectus_abdominis')}
-                opacity={getOpacity('rectus_abdominis')}
+                filter={getFilter('rectus_abdominis')}
               />
               <path
-                d="M 110,134 C 107,133 104,133 102,133 L 102,148 C 105,148 107,147 109,145 C 112,140 112,136 110,134 Z"
+                d="M 110,119 C 106,118 103,118 102,118 L 102,131 C 106,131 108,131 110,130 C 112,126 112,122 110,119 Z"
                 fill={getMuscleFill('rectus_abdominis')}
                 stroke={getMuscleStroke('rectus_abdominis')}
                 strokeWidth={getStrokeWidth('rectus_abdominis')}
                 opacity={getOpacity('rectus_abdominis')}
+                filter={getFilter('rectus_abdominis')}
+              />
+              {/* Lower Abs */}
+              <path
+                d="M 91,134 C 94,133 97,133 98,133 L 98,148 C 95,148 93,147 92,145 C 89,140 89,136 91,134 Z"
+                fill={getMuscleFill('rectus_abdominis')}
+                stroke={getMuscleStroke('rectus_abdominis')}
+                strokeWidth={getStrokeWidth('rectus_abdominis')}
+                opacity={getOpacity('rectus_abdominis')}
+                filter={getFilter('rectus_abdominis')}
+              />
+              <path
+                d="M 109,134 C 106,133 103,133 102,133 L 102,148 C 105,148 107,147 108,145 C 111,140 111,136 109,134 Z"
+                fill={getMuscleFill('rectus_abdominis')}
+                stroke={getMuscleStroke('rectus_abdominis')}
+                strokeWidth={getStrokeWidth('rectus_abdominis')}
+                opacity={getOpacity('rectus_abdominis')}
+                filter={getFilter('rectus_abdominis')}
               />
             </>
           )}
 
-          {/* CORE - Obliques */}
+          {/* CORE - Obliques (Flanks) */}
           {renderMuscleGroup(
             'obliques',
             'Obliques',
             <>
-              {/* Left Oblique Flank */}
               <path
-                d="M 85,105 C 79,106 72,114 71,126 C 70,138 72,146 76,149 C 81,148 85,145 87,142 C 86,132 86,118 85,105 Z"
+                d="M 86,106 C 80,107 73,115 72,127 C 71,139 73,147 77,150 C 82,149 86,146 88,143 C 87,133 87,119 86,106 Z"
                 fill={getMuscleFill('obliques')}
                 stroke={getMuscleStroke('obliques')}
                 strokeWidth={getStrokeWidth('obliques')}
                 opacity={getOpacity('obliques')}
+                filter={getFilter('obliques')}
               />
-              {/* Right Oblique Flank */}
               <path
-                d="M 115,105 C 121,106 128,114 129,126 C 130,138 128,146 124,149 C 119,148 115,145 113,142 C 114,132 114,118 115,105 Z"
+                d="M 114,106 C 120,107 127,115 128,127 C 129,139 127,147 123,150 C 118,149 114,146 112,143 C 113,133 113,119 114,106 Z"
                 fill={getMuscleFill('obliques')}
                 stroke={getMuscleStroke('obliques')}
                 strokeWidth={getStrokeWidth('obliques')}
                 opacity={getOpacity('obliques')}
+                filter={getFilter('obliques')}
               />
             </>
           )}
 
-          {/* LEGS - Quadriceps (Vastus Lateralis, Rectus Femoris, Vastus Medialis) */}
+          {/* LEGS - Quadriceps (Sweeping Athletic Quads) */}
           {renderMuscleGroup(
             'quadriceps',
             'Quadriceps',
             <>
-              {/* Left Quad */}
               <path
-                d="M 74,154 C 68,165 65,188 66,212 C 67,226 71,235 77,236 C 84,237 88,231 91,224 C 94,204 94,178 93,156 C 86,154 79,153 74,154 Z"
+                d="M 75,155 C 69,166 66,189 67,213 C 68,227 72,236 78,237 C 85,238 89,232 92,225 C 95,205 95,179 94,157 C 87,155 80,154 75,155 Z"
                 fill={getMuscleFill('quadriceps')}
                 stroke={getMuscleStroke('quadriceps')}
                 strokeWidth={getStrokeWidth('quadriceps')}
                 opacity={getOpacity('quadriceps')}
+                filter={getFilter('quadriceps')}
               />
-              {/* Right Quad */}
               <path
-                d="M 126,154 C 132,165 135,188 134,212 C 133,226 129,235 123,236 C 116,237 112,231 109,224 C 106,204 106,178 107,156 C 114,154 121,153 126,154 Z"
+                d="M 125,155 C 131,166 134,189 133,213 C 132,227 128,236 122,237 C 115,238 111,232 108,225 C 105,205 105,179 106,157 C 113,155 120,154 125,155 Z"
                 fill={getMuscleFill('quadriceps')}
                 stroke={getMuscleStroke('quadriceps')}
                 strokeWidth={getStrokeWidth('quadriceps')}
                 opacity={getOpacity('quadriceps')}
+                filter={getFilter('quadriceps')}
               />
             </>
           )}
@@ -371,47 +467,47 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
           {/* LEGS - Adductors (Inner Thighs) */}
           {renderMuscleGroup(
             'adductors',
-            'Inner Thighs (Adductors)',
+            'Inner Thighs',
             <>
-              {/* Left Adductor */}
               <path
-                d="M 94,162 C 95,175 95,195 93,215 C 91,215 90,205 91,185 C 92,172 93,165 94,162 Z"
+                d="M 94,163 C 95,176 95,196 93,216 C 91,216 90,206 91,186 C 92,173 93,166 94,163 Z"
                 fill={getMuscleFill('adductors')}
                 stroke={getMuscleStroke('adductors')}
                 strokeWidth={getStrokeWidth('adductors')}
                 opacity={getOpacity('adductors')}
+                filter={getFilter('adductors')}
               />
-              {/* Right Adductor */}
               <path
-                d="M 106,162 C 105,175 105,195 107,215 C 109,215 110,205 109,185 C 108,172 107,165 106,162 Z"
+                d="M 106,163 C 105,176 105,196 107,216 C 109,216 110,206 109,186 C 108,173 107,166 106,163 Z"
                 fill={getMuscleFill('adductors')}
                 stroke={getMuscleStroke('adductors')}
                 strokeWidth={getStrokeWidth('adductors')}
                 opacity={getOpacity('adductors')}
+                filter={getFilter('adductors')}
               />
             </>
           )}
 
-          {/* LEGS - Calves (Gastrocnemius & Tibialis Anterior) */}
+          {/* LEGS - Calves (Gastrocnemius Front & Shins) */}
           {renderMuscleGroup(
             'calves',
             'Calves & Shins',
             <>
-              {/* Left Calf (Front) */}
               <path
-                d="M 75,250 C 69,258 68,272 70,290 C 72,306 74,318 77,322 C 81,322 84,316 86,305 C 89,288 88,266 85,250 Z"
+                d="M 76,251 C 70,259 69,273 71,291 C 73,307 75,319 78,323 C 82,323 85,317 87,306 C 90,289 89,267 86,251 Z"
                 fill={getMuscleFill('calves')}
                 stroke={getMuscleStroke('calves')}
                 strokeWidth={getStrokeWidth('calves')}
                 opacity={getOpacity('calves')}
+                filter={getFilter('calves')}
               />
-              {/* Right Calf (Front) */}
               <path
-                d="M 125,250 C 131,258 132,272 130,290 C 128,306 126,318 123,322 C 119,322 116,316 114,305 C 111,288 112,266 115,250 Z"
+                d="M 124,251 C 130,259 131,273 129,291 C 127,307 125,319 122,323 C 118,323 115,317 113,306 C 110,289 111,267 114,251 Z"
                 fill={getMuscleFill('calves')}
                 stroke={getMuscleStroke('calves')}
                 strokeWidth={getStrokeWidth('calves')}
                 opacity={getOpacity('calves')}
+                filter={getFilter('calves')}
               />
             </>
           )}
@@ -419,254 +515,232 @@ export const BodyMapSVG: React.FC<BodyMapSVGProps> = ({
       )}
 
       {/* ============================================================ */}
-      {/* BACK (POSTERIOR) MUSCLES                                     */}
+      {/* POSTERIOR (BACK) MUSCLES                                     */}
       {/* ============================================================ */}
       {view === 'back' && (
-        <g id="back-muscles">
-          {/* BACK - Upper Back (Rhomboids & Trapezius) */}
+        <g id="fitbod-posterior-muscles">
+          {/* BACK - Upper Back (Trapezius Diamond & Rhomboids) */}
           {renderMuscleGroup(
             'rhomboids',
-            'Upper Back',
+            'Trapezius & Upper Back',
             <>
-              {/* Upper Trapezius / Neck Yoke */}
+              {/* Upper Trapezius Yoke */}
               <path
                 d="M 100,44 C 91,46 81,51 72,58 C 74,64 77,68 82,70 C 89,67 95,66 100,66 C 105,66 111,67 118,70 C 123,68 126,64 128,58 C 119,51 109,46 100,44 Z"
                 fill={getMuscleFill('rhomboids')}
                 stroke={getMuscleStroke('rhomboids')}
                 strokeWidth={getStrokeWidth('rhomboids')}
                 opacity={getOpacity('rhomboids')}
+                filter={getFilter('rhomboids')}
               />
-              {/* Left Rhomboid / Mid-Trap */}
+              {/* Mid-Trap & Rhomboid Core Diamond */}
               <path
                 d="M 99,67 C 93,67 85,71 80,75 C 79,84 86,98 99,114 Z"
                 fill={getMuscleFill('rhomboids')}
                 stroke={getMuscleStroke('rhomboids')}
                 strokeWidth={getStrokeWidth('rhomboids')}
                 opacity={getOpacity('rhomboids')}
+                filter={getFilter('rhomboids')}
               />
-              {/* Right Rhomboid / Mid-Trap */}
               <path
                 d="M 101,67 C 107,67 115,71 120,75 C 121,84 114,98 101,114 Z"
                 fill={getMuscleFill('rhomboids')}
                 stroke={getMuscleStroke('rhomboids')}
                 strokeWidth={getStrokeWidth('rhomboids')}
                 opacity={getOpacity('rhomboids')}
+                filter={getFilter('rhomboids')}
               />
             </>
           )}
 
-          {/* SHOULDERS - Posterior Deltoid (Rear Delts) */}
+          {/* DELTOIDS - Posterior (Rear Delts) */}
           {renderMuscleGroup(
             'posterior_deltoid',
-            'Rear Deltoids',
+            'Rear Shoulders',
             <>
-              {/* Left Rear Delt */}
               <path
-                d="M 68,58 C 62,60 56,66 55,74 C 55,80 58,85 64,86 C 68,82 70,74 70,66 Z"
+                d="M 70,60 C 64,61 59,65 57,71 C 55,77 56,84 62,88 C 65,83 67,76 68,68 Z"
                 fill={getMuscleFill('posterior_deltoid')}
                 stroke={getMuscleStroke('posterior_deltoid')}
                 strokeWidth={getStrokeWidth('posterior_deltoid')}
                 opacity={getOpacity('posterior_deltoid')}
+                filter={getFilter('posterior_deltoid')}
               />
-              {/* Right Rear Delt */}
               <path
-                d="M 132,58 C 138,60 144,66 145,74 C 145,80 142,85 136,86 C 132,82 130,74 130,66 Z"
+                d="M 130,60 C 136,61 141,65 143,71 C 145,77 144,84 138,88 C 135,83 133,76 132,68 Z"
                 fill={getMuscleFill('posterior_deltoid')}
                 stroke={getMuscleStroke('posterior_deltoid')}
                 strokeWidth={getStrokeWidth('posterior_deltoid')}
                 opacity={getOpacity('posterior_deltoid')}
+                filter={getFilter('posterior_deltoid')}
               />
             </>
           )}
 
-          {/* SHOULDERS - Lateral Deltoid (Side Delts - Back View) */}
-          {renderMuscleGroup(
-            'lateral_deltoid',
-            'Side Deltoids',
-            <>
-              {/* Left Lateral Delt */}
-              <path
-                d="M 54,68 C 49,72 48,79 50,86 C 52,90 56,92 58,90 C 56,82 55,75 54,68 Z"
-                fill={getMuscleFill('lateral_deltoid')}
-                stroke={getMuscleStroke('lateral_deltoid')}
-                strokeWidth={getStrokeWidth('lateral_deltoid')}
-                opacity={getOpacity('lateral_deltoid')}
-              />
-              {/* Right Lateral Delt */}
-              <path
-                d="M 146,68 C 151,72 152,79 150,86 C 148,90 144,92 142,90 C 144,82 145,75 146,68 Z"
-                fill={getMuscleFill('lateral_deltoid')}
-                stroke={getMuscleStroke('lateral_deltoid')}
-                strokeWidth={getStrokeWidth('lateral_deltoid')}
-                opacity={getOpacity('lateral_deltoid')}
-              />
-            </>
-          )}
-
-          {/* ARMS - Triceps (Horseshoe Lateral & Long Heads) */}
+          {/* ARMS - Triceps (Long, Lateral & Medial Heads) */}
           {renderMuscleGroup(
             'triceps',
             'Triceps',
             <>
-              {/* Left Tricep */}
               <path
-                d="M 57,92 C 51,96 50,108 51,120 C 52,126 56,128 60,127 C 65,122 66,112 65,100 C 64,94 61,92 57,92 Z"
+                d="M 56,92 C 51,96 49,108 50,121 C 51,127 55,129 59,127 C 63,122 65,111 64,99 C 63,94 59,92 56,92 Z"
                 fill={getMuscleFill('triceps')}
                 stroke={getMuscleStroke('triceps')}
                 strokeWidth={getStrokeWidth('triceps')}
                 opacity={getOpacity('triceps')}
+                filter={getFilter('triceps')}
               />
-              {/* Right Tricep */}
               <path
-                d="M 143,92 C 149,96 150,108 149,120 C 148,126 144,128 140,127 C 135,122 134,112 135,100 C 136,94 139,92 143,92 Z"
+                d="M 144,92 C 149,96 151,108 150,121 C 149,127 145,129 141,127 C 137,122 135,111 136,99 C 137,94 141,92 144,92 Z"
                 fill={getMuscleFill('triceps')}
                 stroke={getMuscleStroke('triceps')}
                 strokeWidth={getStrokeWidth('triceps')}
                 opacity={getOpacity('triceps')}
+                filter={getFilter('triceps')}
               />
             </>
           )}
 
-          {/* ARMS - Forearms (Posterior Extensors) */}
+          {/* ARMS - Forearms Posterior (Extensors) */}
           {renderMuscleGroup(
             'forearms',
-            'Forearms',
+            'Forearm Extensors',
             <>
-              {/* Left Forearm (Back) */}
               <path
-                d="M 52,130 C 47,135 45,145 46,160 C 47,172 49,182 52,183 C 55,183 58,175 60,165 C 62,152 62,138 59,132 Z"
+                d="M 52,130 C 47,135 45,145 46,160 C 47,172 49,180 52,181 C 55,181 58,173 60,163 C 62,150 62,136 59,130 Z"
                 fill={getMuscleFill('forearms')}
                 stroke={getMuscleStroke('forearms')}
                 strokeWidth={getStrokeWidth('forearms')}
                 opacity={getOpacity('forearms')}
+                filter={getFilter('forearms')}
               />
-              {/* Right Forearm (Back) */}
               <path
-                d="M 148,130 C 153,135 155,145 154,160 C 153,172 151,182 148,183 C 145,183 142,175 140,165 C 138,152 138,138 141,132 Z"
+                d="M 148,130 C 153,135 155,145 154,160 C 153,172 151,180 148,181 C 145,181 142,173 140,163 C 138,150 138,136 141,130 Z"
                 fill={getMuscleFill('forearms')}
                 stroke={getMuscleStroke('forearms')}
                 strokeWidth={getStrokeWidth('forearms')}
                 opacity={getOpacity('forearms')}
+                filter={getFilter('forearms')}
               />
             </>
           )}
 
-          {/* BACK - Latissimus Dorsi (Lats V-Taper) */}
+          {/* BACK - Latissimus Dorsi (V-Taper Wings) */}
           {renderMuscleGroup(
             'latissimus_dorsi',
-            'Lats (Latissimus Dorsi)',
+            'Lats',
             <>
-              {/* Left Lat Wing */}
               <path
-                d="M 70,72 C 67,82 66,108 72,128 C 76,134 82,137 87,138 C 88,124 88,112 87,98 C 82,90 76,82 70,72 Z"
+                d="M 78,82 C 72,92 68,108 71,126 C 73,138 78,144 83,143 C 86,136 88,124 88,110 C 88,96 84,86 78,82 Z"
                 fill={getMuscleFill('latissimus_dorsi')}
                 stroke={getMuscleStroke('latissimus_dorsi')}
                 strokeWidth={getStrokeWidth('latissimus_dorsi')}
                 opacity={getOpacity('latissimus_dorsi')}
+                filter={getFilter('latissimus_dorsi')}
               />
-              {/* Right Lat Wing */}
               <path
-                d="M 130,72 C 133,82 134,108 128,128 C 124,134 118,137 113,138 C 112,124 112,112 113,98 C 118,90 124,82 130,72 Z"
+                d="M 122,82 C 128,92 132,108 129,126 C 127,138 122,144 117,143 C 114,136 112,124 112,110 C 112,96 116,86 122,82 Z"
                 fill={getMuscleFill('latissimus_dorsi')}
                 stroke={getMuscleStroke('latissimus_dorsi')}
                 strokeWidth={getStrokeWidth('latissimus_dorsi')}
                 opacity={getOpacity('latissimus_dorsi')}
+                filter={getFilter('latissimus_dorsi')}
               />
             </>
           )}
 
-          {/* BACK - Lower Back (Spinal Erectors) */}
+          {/* BACK - Spinal Erectors (Lower Back) */}
           {renderMuscleGroup(
             'spinal_erectors',
-            'Lower Back (Spinal Erectors)',
+            'Lower Back',
             <>
-              {/* Left Erector Column */}
               <path
-                d="M 91,116 C 94,116 97,116 98,116 L 98,152 C 95,152 92,151 90,149 C 89,140 89,126 91,116 Z"
+                d="M 92,118 C 95,116 98,116 98,116 L 98,148 C 96,148 94,147 92,144 C 90,138 90,128 92,118 Z"
                 fill={getMuscleFill('spinal_erectors')}
                 stroke={getMuscleStroke('spinal_erectors')}
                 strokeWidth={getStrokeWidth('spinal_erectors')}
                 opacity={getOpacity('spinal_erectors')}
+                filter={getFilter('spinal_erectors')}
               />
-              {/* Right Erector Column */}
               <path
-                d="M 109,116 C 106,116 103,116 102,116 L 102,152 C 105,152 108,151 110,149 C 111,140 111,126 109,116 Z"
+                d="M 108,118 C 105,116 102,116 102,116 L 102,148 C 104,148 106,147 108,144 C 110,138 110,128 108,118 Z"
                 fill={getMuscleFill('spinal_erectors')}
                 stroke={getMuscleStroke('spinal_erectors')}
                 strokeWidth={getStrokeWidth('spinal_erectors')}
                 opacity={getOpacity('spinal_erectors')}
+                filter={getFilter('spinal_erectors')}
               />
             </>
           )}
 
-          {/* LEGS - Gluteus (Gluteus Maximus) */}
+          {/* GLUTEUS (Fitbod Glute Contours) */}
           {renderMuscleGroup(
             'gluteus',
-            'Glutes (Gluteus Maximus)',
+            'Glutes',
             <>
-              {/* Left Glute */}
               <path
-                d="M 75,153 C 71,162 71,178 77,187 C 84,192 93,191 98,185 L 98,154 C 91,152 83,151 75,153 Z"
+                d="M 98,149 C 91,148 76,151 73,161 C 69,174 72,192 81,197 C 89,201 96,196 98,187 Z"
                 fill={getMuscleFill('gluteus')}
                 stroke={getMuscleStroke('gluteus')}
                 strokeWidth={getStrokeWidth('gluteus')}
                 opacity={getOpacity('gluteus')}
+                filter={getFilter('gluteus')}
               />
-              {/* Right Glute */}
               <path
-                d="M 125,153 C 129,162 129,178 123,187 C 116,192 107,191 102,185 L 102,154 C 109,152 117,151 125,153 Z"
+                d="M 102,149 C 109,148 124,151 127,161 C 131,174 128,192 119,197 C 111,201 104,196 102,187 Z"
                 fill={getMuscleFill('gluteus')}
                 stroke={getMuscleStroke('gluteus')}
                 strokeWidth={getStrokeWidth('gluteus')}
                 opacity={getOpacity('gluteus')}
+                filter={getFilter('gluteus')}
               />
             </>
           )}
 
-          {/* LEGS - Hamstrings (Biceps Femoris & Semitendinosus) */}
+          {/* LEGS - Hamstrings (Posterior Thighs) */}
           {renderMuscleGroup(
             'hamstrings',
             'Hamstrings',
             <>
-              {/* Left Hamstring */}
               <path
-                d="M 75,193 C 71,202 70,220 72,234 C 77,237 84,236 88,232 C 92,218 94,204 95,192 C 87,191 80,191 75,193 Z"
+                d="M 76,200 C 71,206 69,219 72,234 C 75,237 81,237 86,236 C 92,232 94,222 93,205 C 87,203 81,201 76,200 Z"
                 fill={getMuscleFill('hamstrings')}
                 stroke={getMuscleStroke('hamstrings')}
                 strokeWidth={getStrokeWidth('hamstrings')}
                 opacity={getOpacity('hamstrings')}
+                filter={getFilter('hamstrings')}
               />
-              {/* Right Hamstring */}
               <path
-                d="M 125,193 C 129,202 130,220 128,234 C 123,237 116,236 112,232 C 108,218 106,204 105,192 C 113,191 120,191 125,193 Z"
+                d="M 124,200 C 129,206 131,219 128,234 C 125,237 119,237 114,236 C 108,232 106,222 107,205 C 113,203 119,201 124,200 Z"
                 fill={getMuscleFill('hamstrings')}
                 stroke={getMuscleStroke('hamstrings')}
                 strokeWidth={getStrokeWidth('hamstrings')}
                 opacity={getOpacity('hamstrings')}
+                filter={getFilter('hamstrings')}
               />
             </>
           )}
 
-          {/* LEGS - Calves (Gastrocnemius Diamond Bellies) */}
+          {/* LEGS - Calves Posterior (Gastrocnemius Twin Diamond) */}
           {renderMuscleGroup(
             'calves',
-            'Calves (Gastrocnemius & Soleus)',
+            'Calves (Posterior)',
             <>
-              {/* Left Calf (Back) */}
               <path
-                d="M 75,250 C 69,258 68,272 70,288 C 72,304 74,318 77,322 C 82,322 84,316 86,305 C 89,288 88,266 85,250 Z"
+                d="M 76,249 C 70,257 69,271 71,289 C 73,305 75,317 78,321 C 82,321 85,315 87,304 C 90,287 89,265 86,249 Z"
                 fill={getMuscleFill('calves')}
                 stroke={getMuscleStroke('calves')}
                 strokeWidth={getStrokeWidth('calves')}
                 opacity={getOpacity('calves')}
+                filter={getFilter('calves')}
               />
-              {/* Right Calf (Back) */}
               <path
-                d="M 125,250 C 131,258 132,272 130,288 C 128,304 126,318 123,322 C 118,322 116,316 114,305 C 111,288 112,266 115,250 Z"
+                d="M 124,249 C 130,257 131,271 129,289 C 127,305 125,317 122,321 C 118,321 115,315 113,304 C 110,287 111,265 114,249 Z"
                 fill={getMuscleFill('calves')}
                 stroke={getMuscleStroke('calves')}
                 strokeWidth={getStrokeWidth('calves')}
                 opacity={getOpacity('calves')}
+                filter={getFilter('calves')}
               />
             </>
           )}

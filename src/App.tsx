@@ -45,10 +45,12 @@ import { TemplatesView } from './components/templates/TemplatesView';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { WelcomeAuthView } from './components/auth/WelcomeAuthView';
+import { ThemePaletteModal } from './components/theme/ThemePaletteModal';
 import { AuthUser } from './types';
 import { formatAthleteName } from './lib/nameUtils';
 import { initGA, trackPageView, trackWorkoutStarted, trackWorkoutCompleted } from './lib/analytics';
 import { initNativeApp } from './lib/nativeBridge';
+import { ThemePaletteId, getSavedThemePalette, applyThemePalette } from './lib/theme';
 
 // Icons
 import {
@@ -66,6 +68,7 @@ import {
   User,
   Users,
   LogOut,
+  Palette,
   X
 } from 'lucide-react';
 
@@ -109,6 +112,8 @@ export function App() {
   // Modals & Preferences
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showMobileWorkoutMenu, setShowMobileWorkoutMenu] = useState(false);
+  const [showPaletteModal, setShowPaletteModal] = useState(false);
+  const [currentPalette, setCurrentPalette] = useState<ThemePaletteId>(() => getSavedThemePalette());
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -259,6 +264,10 @@ export function App() {
     initNativeApp(() => {
       if (showProfileModal) {
         setShowProfileModal(false);
+        return true;
+      }
+      if (showPaletteModal) {
+        setShowPaletteModal(false);
         return true;
       }
       if (showMobileWorkoutMenu) {
@@ -490,6 +499,18 @@ export function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  // Color palette theme sync
+  useEffect(() => {
+    applyThemePalette(currentPalette);
+  }, [currentPalette]);
+
+  // Sync palette from profile when profile loads
+  useEffect(() => {
+    if (profile?.themePalette && profile.themePalette !== currentPalette) {
+      setCurrentPalette(profile.themePalette as ThemePaletteId);
+    }
+  }, [profile?.themePalette]);
 
   // Periodic check for active workout session to keep floating banner in sync
   useEffect(() => {
@@ -911,6 +932,10 @@ export function App() {
 
   const handleUpdateProfile = async (updated: Partial<UserProfile>) => {
     try {
+      if (updated.themePalette) {
+        setCurrentPalette(updated.themePalette as ThemePaletteId);
+        applyThemePalette(updated.themePalette as ThemePaletteId);
+      }
       const payload: Partial<UserProfile> = {
         ...updated,
         updatedAt: new Date().toISOString()
@@ -1143,6 +1168,16 @@ export function App() {
               <span>Start Workout</span>
             </button>
 
+            {/* Color Palette Theme Switcher */}
+            <button
+              onClick={() => setShowPaletteModal(true)}
+              className="p-1.5 sm:p-2 rounded-xl text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Change Color Palette"
+              aria-label="Color Palette"
+            >
+              <Palette className="w-4 h-4" />
+            </button>
+
             {/* Dark / Light Mode Toggle */}
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
@@ -1258,6 +1293,8 @@ export function App() {
                 musclesData={musclesData}
                 radar={radar}
                 userProfile={profile}
+                onNavigateToAI={() => setActiveTab('ai')}
+                onOpenProfileModal={() => setShowProfileModal(true)}
               />
             )}
 
@@ -1477,6 +1514,20 @@ export function App() {
           <span className="text-[10px]">Stats</span>
         </button>
       </nav>
+
+      {/* Theme Color Palette Selector Modal */}
+      {showPaletteModal && (
+        <ThemePaletteModal
+          currentPalette={currentPalette}
+          onSelectPalette={paletteId => {
+            setCurrentPalette(paletteId);
+            if (profile) {
+              handleUpdateProfile({ themePalette: paletteId });
+            }
+          }}
+          onClose={() => setShowPaletteModal(false)}
+        />
+      )}
 
       {/* Profile & Settings Modal */}
       {showProfileModal && profile && (

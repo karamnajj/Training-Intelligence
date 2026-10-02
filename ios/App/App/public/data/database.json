@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "lastSavedAt": "2026-09-30T10:50:14.232Z",
+  "lastSavedAt": "2026-10-02T20:34:51.108Z",
   "usersCount": 2,
   "users": [
     {
@@ -36,8 +36,8 @@
         {
           "id": "alex_showcase_push_yesterday",
           "name": "Heavy Upper Chest & Deltoid Power",
-          "startedAt": "2026-09-29T09:48:14.230Z",
-          "completedAt": "2026-09-29T10:50:14.230Z",
+          "startedAt": "2026-10-01T19:32:07.049Z",
+          "completedAt": "2026-10-01T20:34:07.049Z",
           "durationSeconds": 3720,
           "notes": "Clean locks on incline dumbbells and heavy flat barbell press. Pectorals and anterior delts fully stimulated.",
           "totalVolumeKg": 4280,
@@ -161,8 +161,8 @@
         {
           "id": "alex_showcase_pull_2d",
           "name": "Lat Hypertrophy & Posterior Chain",
-          "startedAt": "2026-09-28T07:16:14.230Z",
-          "completedAt": "2026-09-28T08:26:14.230Z",
+          "startedAt": "2026-09-30T17:00:07.049Z",
+          "completedAt": "2026-09-30T18:10:07.049Z",
           "durationSeconds": 4200,
           "notes": "Excellent lat contraction and heavy seated cable rows. Great bicep and rear delt accessory pump.",
           "totalVolumeKg": 4620,
@@ -312,8 +312,8 @@
         {
           "id": "alex_showcase_legs_4d",
           "name": "Lower Body Compound Loading",
-          "startedAt": "2026-09-26T14:23:14.230Z",
-          "completedAt": "2026-09-26T15:38:14.230Z",
+          "startedAt": "2026-09-29T00:07:07.049Z",
+          "completedAt": "2026-09-29T01:22:07.049Z",
           "durationSeconds": 4500,
           "notes": "Deep back squats and Romanian deadlifts. Quads and gluteals in active recovery.",
           "totalVolumeKg": 4950,
@@ -437,8 +437,8 @@
         {
           "id": "alex_showcase_core_arms_6d",
           "name": "Arms, Calves & Core Priming",
-          "startedAt": "2026-09-24T14:46:34.230Z",
-          "completedAt": "2026-09-24T15:38:14.230Z",
+          "startedAt": "2026-09-27T00:30:27.049Z",
+          "completedAt": "2026-09-27T01:22:07.049Z",
           "durationSeconds": 3100,
           "notes": "High-rep calf and abdominal wall priming. Triceps and core are now supercompensated and ready for direct work.",
           "totalVolumeKg": 2420,
@@ -749,7 +749,7 @@
           "exerciseName": "Barbell Back Squat",
           "maxWeightKg": 125,
           "maxReps": 6,
-          "achievedAt": "2026-09-26T15:38:14.231Z",
+          "achievedAt": "2026-09-29T01:22:07.050Z",
           "workoutId": "alex_showcase_legs_4d",
           "estimated1RMKg": 150,
           "userId": "usr_guest_demo"
@@ -759,7 +759,7 @@
           "exerciseName": "Barbell Bench Press (Flat)",
           "maxWeightKg": 100,
           "maxReps": 8,
-          "achievedAt": "2026-09-29T10:50:14.231Z",
+          "achievedAt": "2026-10-01T20:34:07.050Z",
           "workoutId": "alex_showcase_push_yesterday",
           "estimated1RMKg": 126.7,
           "userId": "usr_guest_demo"
@@ -769,7 +769,7 @@
           "exerciseName": "Romanian Deadlift",
           "maxWeightKg": 110,
           "maxReps": 8,
-          "achievedAt": "2026-09-26T15:38:14.231Z",
+          "achievedAt": "2026-09-29T01:22:07.050Z",
           "workoutId": "alex_showcase_legs_4d",
           "estimated1RMKg": 139.3,
           "userId": "usr_guest_demo"
@@ -779,7 +779,7 @@
           "exerciseName": "Lat Pulldown",
           "maxWeightKg": 85,
           "maxReps": 8,
-          "achievedAt": "2026-09-28T08:26:14.231Z",
+          "achievedAt": "2026-09-30T18:10:07.050Z",
           "workoutId": "alex_showcase_pull_2d",
           "estimated1RMKg": 107.7,
           "userId": "usr_guest_demo"
@@ -789,7 +789,7 @@
           "exerciseName": "Incline Dumbbell Bench Press",
           "maxWeightKg": 36,
           "maxReps": 8,
-          "achievedAt": "2026-09-29T10:50:14.231Z",
+          "achievedAt": "2026-10-01T20:34:07.050Z",
           "workoutId": "alex_showcase_push_yesterday",
           "estimated1RMKg": 45.6,
           "userId": "usr_guest_demo"
@@ -805,7 +805,7 @@
     },
     {
       "id": "usr_karam_owner",
-      "email": "athlete@trainingintel.app",
+      "email": "karamnajj79@gmail.com",
       "username": "Karam",
       "createdAt": "2026-09-15T08:03:55.141Z",
       "profile": {
@@ -831,7 +831,15 @@
           "quadriceps"
         ],
         "birthday": "2000-03-20",
-        "updatedAt": "2026-09-29T11:28:56.026Z"
+        "updatedAt": "2026-10-02T20:34:51.108Z",
+        "targetFocusAreas": [
+          "latissimus_dorsi",
+          "chest_upper",
+          "chest_mid",
+          "hamstrings"
+        ],
+        "notes": "Focusing on double progression and bringing up posterior chain.",
+        "themePalette": "crimson"
       },
       "workouts": [],
       "templates": [

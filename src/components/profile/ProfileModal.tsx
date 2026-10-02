@@ -4,7 +4,9 @@ import { MUSCLE_CATALOG } from '../../lib/muscleMath';
 import { api } from '../../lib/api';
 import { auth, signInWithGoogle, saveWorkoutToFirestore } from '../../lib/firebase';
 import { storageVault } from '../../lib/storageVault';
-import { X, User, Settings, ShieldAlert, RotateCcw, Check, Sparkles, Download, Upload, RefreshCw, ShieldCheck, Cloud, Calendar, Cake } from 'lucide-react';
+import { THEME_PALETTES, ThemePaletteId, getSavedThemePalette, applyThemePalette } from '../../lib/theme';
+import { nativeHaptics } from '../../lib/nativeBridge';
+import { X, User, Settings, ShieldAlert, RotateCcw, Check, Sparkles, Download, Upload, RefreshCw, ShieldCheck, Cloud, Calendar, Cake, Palette } from 'lucide-react';
 
 interface ProfileModalProps {
   profile: UserProfile;
@@ -30,6 +32,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [trainingDaysPerWeek, setTrainingDaysPerWeek] = useState(profile.trainingDaysPerWeek || 4);
   const [primaryGoal, setPrimaryGoal] = useState(profile.primaryGoal || 'hypertrophy');
   const [focusMuscles, setFocusMuscles] = useState<MuscleId[]>(profile.focusMuscles || []);
+  const [themePalette, setThemePalette] = useState<ThemePaletteId>(
+    (profile.themePalette as ThemePaletteId) || getSavedThemePalette()
+  );
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -44,7 +49,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setTrainingDaysPerWeek(profile.trainingDaysPerWeek || 4);
     setPrimaryGoal(profile.primaryGoal || 'hypertrophy');
     setFocusMuscles(profile.focusMuscles || []);
+    setThemePalette((profile.themePalette as ThemePaletteId) || getSavedThemePalette());
   }, [profile]);
+
+  const handleSelectPalette = (id: ThemePaletteId) => {
+    setThemePalette(id);
+    applyThemePalette(id);
+    nativeHaptics.selection();
+  };
 
   const calculatedAge = useMemo(() => {
     if (!birthday) return null;
@@ -135,7 +147,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       experienceLevel: experienceLevel as any,
       trainingDaysPerWeek: Number(trainingDaysPerWeek) || 4,
       primaryGoal: primaryGoal as any,
-      focusMuscles
+      focusMuscles,
+      themePalette
     });
     onClose();
   };
@@ -299,6 +312,55 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     }`}
                   >
                     {info.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* App Color Palette Theme */}
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <Palette className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <label className="font-semibold text-slate-800 dark:text-slate-200">
+                  App Color Palette
+                </label>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {THEME_PALETTES.find(p => p.id === themePalette)?.name || 'Default'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {THEME_PALETTES.map(p => {
+                const isSelected = themePalette === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleSelectPalette(p.id)}
+                    className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 ring-2 ring-blue-500/20 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] text-slate-900 dark:text-white truncate">
+                        {p.name}
+                      </span>
+                      {isSelected && <Check className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {p.previewSwatches.map((color, cIdx) => (
+                        <span
+                          key={cIdx}
+                          className="w-2.5 h-2.5 rounded-full border border-black/10 dark:border-white/10 shrink-0"
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
                   </button>
                 );
               })}

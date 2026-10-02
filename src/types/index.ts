@@ -182,6 +182,7 @@ export interface UserProfile {
   focusMuscles?: MuscleId[];
   notes?: string;
   birthday?: string; // ISO date string YYYY-MM-DD
+  themePalette?: string;
   updatedAt?: string;
 }
 

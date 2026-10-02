@@ -85,15 +85,14 @@ export function computeAllWorkoutsPRs(workouts: Workout[]): Map<string, WorkoutP
           // Weighted exercise set
           const prevMaxWeight = maxWeightMap.get(exId);
           if (prevMaxWeight === undefined) {
-            // First time establishing a weighted mark for this exercise
-            isWeightPR = true;
-            detail = `First logged weight: ${weight} kg`;
+            // First time establishing a baseline for this exercise: do NOT mark as PR
+            isWeightPR = false;
           } else if (weight > prevMaxWeight) {
             isWeightPR = true;
             detail = `New max weight: ${weight} kg (previous: ${prevMaxWeight} kg)`;
           }
 
-          // Check rep PR at this weight (only if not already a weight PR, or if hitting high reps at new weight)
+          // Check rep PR at this weight (only if historical baseline exists and not already a weight PR)
           let repsMap = maxRepsAtWeightMap.get(exId);
           if (!repsMap) {
             repsMap = new Map<number, number>();
@@ -117,8 +116,8 @@ export function computeAllWorkoutsPRs(workouts: Workout[]): Map<string, WorkoutP
           // Bodyweight exercise set (0kg added)
           const prevMaxBwReps = maxBwRepsMap.get(exId);
           if (prevMaxBwReps === undefined) {
-            isRepPR = true;
-            detail = `First logged bodyweight: ${reps} reps`;
+            // First time establishing bodyweight baseline: do NOT mark as PR
+            isRepPR = false;
           } else if (reps > prevMaxBwReps) {
             isRepPR = true;
             detail = `New bodyweight rep PR: ${reps} reps (previous: ${prevMaxBwReps})`;
@@ -253,15 +252,18 @@ export function checkActiveSetPR(
     }
   }
 
+  // If this is the athlete's very first time logging this exercise, establish the baseline without PR celebration
+  if (!hasAnyHistoricalData) {
+    return { isPR: false };
+  }
+
   if (!isBW && weight > 0) {
-    if (!hasAnyHistoricalData || weight > historicalMaxWeight) {
+    if (weight > historicalMaxWeight) {
       return {
         isPR: true,
         prType: 'weight',
         label: 'Weight PR',
-        detail: historicalMaxWeight > 0
-          ? `Heaviest load ever: ${weight} kg (prior best: ${historicalMaxWeight} kg)`
-          : `First logged personal record: ${weight} kg`,
+        detail: `Heaviest load ever: ${weight} kg (prior best: ${historicalMaxWeight} kg)`,
         previousBest: { weightKg: historicalMaxWeight }
       };
     }
@@ -277,14 +279,12 @@ export function checkActiveSetPR(
     }
   } else {
     // Bodyweight
-    if (!hasAnyHistoricalData || reps > historicalMaxBwReps) {
+    if (reps > historicalMaxBwReps) {
       return {
         isPR: true,
         prType: 'reps',
         label: 'Rep PR',
-        detail: historicalMaxBwReps > 0
-          ? `Most bodyweight reps: ${reps} reps (prior best: ${historicalMaxBwReps})`
-          : `First logged bodyweight record: ${reps} reps`,
+        detail: `Most bodyweight reps: ${reps} reps (prior best: ${historicalMaxBwReps})`,
         previousBest: { reps: historicalMaxBwReps }
       };
     }
